@@ -12,6 +12,8 @@ chmod +x scripts/install_launchd.sh
 
 This installs `~/Library/LaunchAgents/com.email.agent.plist` to run:
 
+**launchctl service name:** use the plist **Label** `com.email.agent`, not the filename `com.email.agent.plist`.
+
 ```bash
 /path/to/venv/bin/python3 /path/to/email-agent/email_agent.py --once
 ```

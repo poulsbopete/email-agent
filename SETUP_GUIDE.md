@@ -365,7 +365,7 @@ Press **Ctrl+C** in the terminal where it's running.
 
 If running via launchctl (Mac), use:
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.email.agent.plist
+launchctl bootout gui/$(id -u)/com.email.agent
 ```
 
 ---

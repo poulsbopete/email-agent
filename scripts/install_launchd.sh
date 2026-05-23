@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLIST_NAME="com.email.agent.plist"
+SERVICE_LABEL="com.email.agent"
 PLIST_DEST="$HOME/Library/LaunchAgents/$PLIST_NAME"
 LOG_DIR="$HOME/Library/Logs/email-agent"
 TEMPLATE="$SCRIPT_DIR/launchd/com.email.agent.plist.template"
@@ -36,12 +37,12 @@ echo "  Script:  $SCRIPT_DIR/email_agent.py"
 echo "  Logs:    $LOG_DIR/"
 
 # Reload if already loaded
-launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$SERVICE_LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST"
-launchctl enable "gui/$(id -u)/$PLIST_NAME"
+launchctl enable "gui/$(id -u)/$SERVICE_LABEL"
 
 echo ""
 echo "Hourly job loaded. Commands:"
-echo "  launchctl kickstart -k gui/$(id -u)/$PLIST_NAME   # run now"
+echo "  launchctl kickstart -k gui/$(id -u)/$SERVICE_LABEL   # run now"
 echo "  tail -f $LOG_DIR/email-agent.log                 # watch logs"
-echo "  launchctl bootout gui/$(id -u)/$PLIST_NAME       # uninstall"
+echo "  launchctl bootout gui/$(id -u)/$SERVICE_LABEL       # uninstall"
