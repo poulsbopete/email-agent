@@ -106,19 +106,26 @@ def get_token_path() -> Path:
     return resolve_path(os.getenv('GMAIL_TOKEN_FILE', 'token.json'))
 
 
+def is_ci_environment() -> bool:
+    """True when running in CI (GitHub Actions, etc.) — no interactive OAuth."""
+    return os.getenv('CI', '').lower() in ('1', 'true', 'yes')
+
+
 def materialize_gmail_secrets_from_env() -> None:
     """Write GMAIL_*_JSON env vars to disk for OAuth libraries (CI/cloud hosting)."""
+    force_write = is_ci_environment()
+
     creds_json = os.getenv('GMAIL_CREDENTIALS_JSON', '').strip()
     if creds_json:
         path = get_credentials_path()
-        if not path.exists():
+        if force_write or not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(creds_json)
 
     token_json = os.getenv('GMAIL_TOKEN_JSON', '').strip()
     if token_json:
         path = get_token_path()
-        if not path.exists():
+        if force_write or not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(token_json)
 
@@ -132,7 +139,7 @@ def has_gmail_credentials() -> bool:
 
 def is_interactive_auth_available() -> bool:
     """Whether the Desktop OAuth browser flow can run (local terminal, not CI)."""
-    if os.getenv('CI', '').lower() in ('1', 'true', 'yes'):
+    if is_ci_environment():
         return False
     return sys.stdin.isatty()
 
@@ -238,7 +245,16 @@ class EmailAgent:
                 return
 
         self.gmail_service = build('gmail', 'v1', credentials=creds)
-        print('✓ Gmail API authenticated')
+        self._log_gmail_identity()
+
+    def _log_gmail_identity(self) -> None:
+        """Print authenticated mailbox (helps verify CI secrets match the intended account)."""
+        try:
+            profile = self.gmail_service.users().getProfile(userId='me').execute()
+            email = profile.get('emailAddress', 'unknown')
+            print(f'✓ Gmail API authenticated as {email}')
+        except HttpError as error:
+            print(f'✓ Gmail API authenticated (profile lookup failed: {error})')
 
     def authenticate_gmail(self):
         """Handle Gmail OAuth flow."""
@@ -266,7 +282,7 @@ class EmailAgent:
             token.write(creds.to_json())
 
         self.gmail_service = build('gmail', 'v1', credentials=creds)
-        print('✓ Gmail API authenticated successfully')
+        self._log_gmail_identity()
 
     def get_unread_emails(self, max_results: Optional[int] = None) -> list:
         """Fetch unread emails from inbox."""
@@ -365,8 +381,9 @@ CLASSIFICATION RULES:
    - action: "needs_user_input"
    - Include user_question: a specific question for the inbox owner
 
-Also handle these as general unless sensitive:
+Also handle these without user input:
 - Service notifications with no reply needed → action: "mark_read"
+- Google/security login alerts, password resets, 2FA notices → action: "mark_read"
 - Newsletters/digests the user likely wants to keep → action: "mark_read"
 
 Respond with ONLY a JSON object (no markdown):
@@ -507,7 +524,10 @@ Be conservative: if unsure how to respond, use needs_user_input.
                     self.gmail_service.users().messages().modify(
                         userId='me',
                         id=email_id,
-                        body={'addLabelIds': ['IMPORTANT']},
+                        body={
+                            'addLabelIds': ['IMPORTANT'],
+                            'removeLabelIds': ['UNREAD'],
+                        },
                     ).execute()
                 queue_for_review(email, question, analysis, dry_run=self.dry_run)
                 self.notify_user(email, question)
@@ -534,6 +554,8 @@ Be conservative: if unsure how to respond, use needs_user_input.
             print('  No unread emails matched the query')
             if query != 'is:unread in:inbox':
                 print('  Tip: try GMAIL_UNREAD_QUERY=is:unread in:inbox (default) if mail is in Updates/Promotions')
+            elif 'category:primary' in query:
+                print('  Tip: category:primary skips Updates/Promotions tabs — use is:unread in:inbox')
             return 0
 
         print(f'  Found {len(emails)} unread emails')

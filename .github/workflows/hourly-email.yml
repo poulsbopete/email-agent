@@ -38,8 +38,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Validate required secrets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+        run: |
+          missing=0
+          if [ -z "$ANTHROPIC_API_KEY" ]; then echo "::error::ANTHROPIC_API_KEY secret is empty"; missing=1; fi
+          if [ -z "$GMAIL_TOKEN_JSON" ]; then echo "::error::GMAIL_TOKEN_JSON secret is empty"; missing=1; fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Required secrets present (values not printed)."
+
       - name: Run email agent (once)
         env:
+          CI: 'true'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
           GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
