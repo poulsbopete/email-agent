@@ -274,10 +274,14 @@ class EmailAgent:
         if self.dry_run:
             return MOCK_EMAILS[:limit]
 
+        # in:inbox — all inbox tabs (Primary, Updates, etc.). Avoid category:primary;
+        # Gmail often routes security alerts and some personal mail to Updates.
+        query = os.getenv('GMAIL_UNREAD_QUERY', 'is:unread in:inbox')
+
         try:
             results = self.gmail_service.users().messages().list(
                 userId='me',
-                q='is:unread category:primary',
+                q=query,
                 maxResults=limit,
             ).execute()
 
@@ -520,12 +524,16 @@ Be conservative: if unsure how to respond, use needs_user_input.
     def run_once(self) -> int:
         """Run one complete cycle of email processing."""
         mode = '[dry-run] ' if self.dry_run else ''
+        query = os.getenv('GMAIL_UNREAD_QUERY', 'is:unread in:inbox')
         print(f"\n{mode}📧 Checking inbox at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f'  Gmail query: {query!r} (max {self.max_emails})')
 
         emails = self.get_unread_emails()
 
         if not emails:
-            print('  No unread emails found')
+            print('  No unread emails matched the query')
+            if query != 'is:unread in:inbox':
+                print('  Tip: try GMAIL_UNREAD_QUERY=is:unread in:inbox (default) if mail is in Updates/Promotions')
             return 0
 
         print(f'  Found {len(emails)} unread emails')

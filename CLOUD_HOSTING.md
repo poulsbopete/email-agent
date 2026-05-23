@@ -236,7 +236,9 @@ You can leave the workflow disabled as a backup if the Mac mini is offline.
 | `Gmail token missing or expired; interactive OAuth is unavailable` | Missing/invalid `GMAIL_TOKEN_JSON`, or refresh failed | Re-run `python email_agent.py --once` locally; update `GMAIL_TOKEN_JSON` secret |
 | `403 access_denied` during **local** auth | Google OAuth test user not configured | See [SETUP_GUIDE.md — Error 403](SETUP_GUIDE.md#access-blocked-email-agent-has-not-completed-the-google-verification-process-error-403-access_denied) |
 | Workflow never runs on schedule | Actions disabled, repo inactive, or fork without secrets | Enable Actions; confirm secrets on **your** repo (not upstream); note cron is best-effort |
-| Job succeeds but no emails processed | Inbox empty or all read | Normal — look for `✓ Done — 0 action(s) taken`; run with unread mail to verify |
+| Job succeeds but no emails processed | Inbox empty, all read, or **Gmail query mismatch** | Check logs for `Gmail query:` — default is `is:unread in:inbox`. If you previously used `category:primary`, mail in **Updates** (e.g. Google security alerts) was skipped. Re-run after fix or set `GMAIL_UNREAD_QUERY` in the workflow env. |
+| Unread mail visible in Gmail but agent reports 0 | Mail not in Primary tab (Updates/Promotions/Social) | Default query is `is:unread in:inbox` (all inbox tabs). For Primary-only, set `GMAIL_UNREAD_QUERY=is:unread in:inbox category:primary` in the workflow — but expect Updates-tab mail to be ignored. |
+| New mail not processed immediately after removing launchd | GitHub cron is **hourly** (UTC `:05`), not instant | Use **Actions → Run workflow** for immediate check; next cron is at `:05` past the hour UTC. First scheduled run may wait up to ~1 hour after enabling the workflow. |
 | iMessage not received | Expected in CI | iMessage requires macOS Messages — use launchd on a Mac for notifications |
 | Yellow **Node.js 20** deprecation warning on the job | GitHub runner notice (not a failure) | Harmless until Node 24 becomes the default (~June 2026) and Node 20 is removed (~Sept 2026); use current action versions (`checkout@v6`, `setup-python@v6`) |
 
