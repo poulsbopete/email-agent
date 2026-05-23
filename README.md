@@ -32,6 +32,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**Use the venv when you run the agent.** Either keep the shell where you ran `source venv/bin/activate`, or call the interpreter explicitly: `venv/bin/python3 email_agent.py ...`. Plain `python3` without the venv (common on macOS: `/usr/bin/python3` 3.9) does not have project packages such as `anthropic`.
+
 ### 2. Configure environment
 
 ```bash
