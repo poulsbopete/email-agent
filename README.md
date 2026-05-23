@@ -92,6 +92,7 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | `GMAIL_TOKEN_FILE` | No | `token.json` | Path to saved OAuth refresh token (created on first auth) |
 | `GMAIL_CREDENTIALS_JSON` | No | — | Full client secrets JSON string (CI/cloud; written to `GMAIL_CREDENTIALS_FILE` path) |
 | `GMAIL_TOKEN_JSON` | No | — | Full token JSON string (CI/cloud; written to `GMAIL_TOKEN_FILE` path) |
+| `PERSONAL_SENDERS` | No | — | Comma-separated trusted personal email addresses (never archived) |
 | `CHECK_INTERVAL` | No | `300` | Seconds between checks in legacy `--daemon` mode only |
 
 ## Usage
@@ -114,13 +115,31 @@ python3 email_agent.py --once --max-emails 5
 
 | Classification | Action |
 |----------------|--------|
-| Promotion / marketing | Archive (removed from inbox) |
+| Promotion / marketing (clear signals only) | Archive (removed from inbox) |
 | Newsletter / digest | Mark read |
 | Service notification | Mark read |
 | General personal or professional | Draft or send a reply |
 | Unclear or sensitive | Flag **IMPORTANT**, queue in `pending_review.json`, log for review |
 
 By default, the agent is conservative: when unsure how to reply, it asks you rather than guessing.
+
+**Archive safeguards** — the agent will never archive mail that:
+
+- Asks for a reply (`please respond`, questions in the subject, etc.)
+- Comes from your own Gmail address or addresses in `PERSONAL_SENDERS`
+- Lacks clear promotional signals (unsubscribe links, sale language, marketing sender domains)
+
+If Claude misclassifies ambiguous mail as promotional, these rules override the decision to **respond** or flag **needs_user_input** instead.
+
+### Recovering incorrectly archived mail
+
+Archived messages are removed from the inbox but remain in Gmail. To find them:
+
+1. Open Gmail and search **All Mail** (or use the search bar with `in:all`)
+2. Search by subject or sender, e.g. `subject:"Are you looking for emails?"` or `from:poulsbopete@gmail.com`
+3. Select the message → **Move to Inbox** to restore it
+
+You can also reply in-thread with `[agent] reply: your message` after moving it back if you want the agent to draft a response on the next run.
 
 ## When the agent needs your input
 

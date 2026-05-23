@@ -62,7 +62,249 @@ MOCK_EMAILS = [
         'timestamp': '0',
         'thread_id': 'mock-thread-3',
     },
+    {
+        'id': 'mock-response-request-1',
+        'subject': 'Are you looking for emails?',
+        'from': 'Peter Simkins <poulsbopete@gmail.com>',
+        'to': 'you@gmail.com',
+        'body': 'Please respond if you get this. Thanks, me',
+        'full_body': 'Please respond if you get this. Thanks, me',
+        'timestamp': '0',
+        'thread_id': 'mock-thread-4',
+    },
 ]
+
+# Heuristic patterns — applied after Claude to prevent mis-archiving personal mail.
+RESPONSE_REQUEST_PATTERNS = [
+    r'\bplease respond\b',
+    r'\bplease reply\b',
+    r'\blet me know\b',
+    r'\bget back to me\b',
+    r'\bwrite back\b',
+    r'\breply (if|when|to)\b',
+    r'\brespond (if|when|to)\b',
+    r'\bwaiting for (your|a) (reply|response)\b',
+    r'\bcan you (reply|respond)\b',
+    r'\bdo you get this\b',
+    r'\bdid you get (this|my)\b',
+]
+
+PROMOTION_INDICATORS = [
+    r'\bunsubscribe\b',
+    r'\bopt[- ]?out\b',
+    r'\bmanage (your )?preferences\b',
+    r'\bview in browser\b',
+    r'\bflash sale\b',
+    r'\blimited time offer\b',
+    r'\b\d+% off\b',
+    r'\bfree shipping\b',
+    r'\bshop now\b',
+    r'\bact now\b',
+    r'\bexclusive deal\b',
+    r'\bnewsletter\b',
+    r'\bmarketing email\b',
+]
+
+PROMOTION_SENDER_PATTERNS = [
+    r'^(noreply|no-reply|donotreply|do-not-reply)@',
+    r'^(marketing|promo|promotions|deals|newsletter|news|notifications|info)@',
+    r'@mail\.(chimp|jet|erlite|gun)\.',
+    r'@email\.',
+    r'@e\.',
+    r'@mg\.',
+]
+
+
+def email_combined_text(email: dict) -> str:
+    """Subject + body for heuristic scans."""
+    body = email.get('full_body') or email.get('body') or ''
+    return f"{email.get('subject', '')}\n{body}"
+
+
+def requests_response(email: dict) -> bool:
+    """True when the sender clearly expects a reply."""
+    subject = email.get('subject', '')
+    text = email_combined_text(email).lower()
+    for pattern in RESPONSE_REQUEST_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    if '?' in subject:
+        return True
+    return False
+
+
+def looks_like_clear_promotion(email: dict) -> bool:
+    """True only for mail with strong promotional signals."""
+    text = email_combined_text(email).lower()
+    sender = parse_sender_address(email.get('from', '')).lower()
+    for pattern in PROMOTION_SENDER_PATTERNS:
+        if re.search(pattern, sender, re.IGNORECASE):
+            return True
+    for pattern in PROMOTION_INDICATORS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def is_own_sender(email: dict, own_email: str) -> bool:
+    """True when the message appears to come from the inbox owner."""
+    if not own_email:
+        return False
+    sender = parse_sender_address(email.get('from', '')).lower()
+    return sender == own_email.lower()
+
+
+def load_personal_senders() -> set[str]:
+    """Optional comma-separated trusted personal addresses from env."""
+    raw = os.getenv('PERSONAL_SENDERS', '').strip()
+    if not raw:
+        return set()
+    return {addr.strip().lower() for addr in raw.split(',') if addr.strip()}
+
+
+def is_personal_sender(email: dict, personal_senders: set[str]) -> bool:
+    """True when sender is in PERSONAL_SENDERS."""
+    if not personal_senders:
+        return False
+    sender = parse_sender_address(email.get('from', '')).lower()
+    return sender in personal_senders
+
+
+def apply_classification_safeguards(
+    email: dict,
+    analysis: dict,
+    own_email: str = '',
+    personal_senders: Optional[set[str]] = None,
+) -> dict:
+    """
+    Override unsafe archive decisions. Never archive mail that asks for a reply,
+    comes from the user, or lacks clear promotional signals.
+    """
+    personal_senders = personal_senders or set()
+    action = analysis.get('action', 'needs_user_input')
+
+    if action != 'archive':
+        return analysis
+
+    override_reason = None
+    if requests_response(email):
+        override_reason = 'response_requested'
+    elif is_own_sender(email, own_email):
+        override_reason = 'from_own_address'
+    elif is_personal_sender(email, personal_senders):
+        override_reason = 'personal_sender'
+    elif not looks_like_clear_promotion(email):
+        override_reason = 'not_clear_promotion'
+
+    if not override_reason:
+        return analysis
+
+    original_reason = analysis.get('reason', '')
+    safeguard_note = f'Safeguard blocked archive ({override_reason})'
+
+    if override_reason in ('response_requested', 'personal_sender'):
+        return {
+            **analysis,
+            'action': 'respond',
+            'email_type': 'general',
+            'suggested_response': analysis.get('suggested_response') or (
+                "Got your message — thanks for reaching out!"
+            ),
+            'user_question': None,
+            'reason': f'{safeguard_note}. {original_reason}'.strip(),
+        }
+
+    if override_reason == 'from_own_address':
+        return {
+            **analysis,
+            'action': 'needs_user_input',
+            'email_type': 'needs_user_input',
+            'suggested_response': None,
+            'user_question': (
+                'This message appears to come from your own address. '
+                'How should I respond?'
+            ),
+            'reason': f'{safeguard_note}. {original_reason}'.strip(),
+        }
+
+    return {
+        **analysis,
+        'action': 'needs_user_input',
+        'email_type': 'needs_user_input',
+        'suggested_response': None,
+        'user_question': analysis.get('user_question') or (
+            'This email may need a response rather than archiving. How should I handle it?'
+        ),
+        'reason': f'{safeguard_note}. {original_reason}'.strip(),
+    }
+
+
+def build_analysis_prompt(email: dict, own_email: str = '', personal_senders: Optional[set[str]] = None) -> str:
+    """Prompt for Claude email classification."""
+    personal_senders = personal_senders or set()
+    sender = parse_sender_address(email.get('from', ''))
+    context_lines = []
+    if own_email and sender.lower() == own_email.lower():
+        context_lines.append(
+            f'- Sender {sender!r} is the inbox owner\'s own address — NEVER archive; use respond or needs_user_input.'
+        )
+    if personal_senders and sender.lower() in personal_senders:
+        context_lines.append(
+            f'- Sender {sender!r} is a known personal contact — NEVER archive.'
+        )
+    context_block = '\n'.join(context_lines)
+    if context_block:
+        context_block = f'\nSENDER CONTEXT:\n{context_block}\n'
+
+    return f"""
+Analyze this email and choose exactly one action.
+
+From: {email['from']}
+Subject: {email['subject']}
+To: {email['to']}
+Body (first 500 chars): {email['body']}
+{context_block}
+CLASSIFICATION RULES (follow strictly):
+
+NEVER archive when ANY of these apply:
+- Subject or body asks for a reply ("please respond", "please reply", "let me know", questions ending with ?)
+- Sender is a real person writing directly (not bulk/marketing)
+- Sender is the inbox owner or a personal contact
+- You are unsure — default to needs_user_input, NOT archive
+
+ONLY archive CLEAR promotional/marketing mail with signals like:
+- Unsubscribe / opt-out / manage preferences links
+- Sales language (percent off, flash sale, limited time, shop now)
+- Bulk sender addresses (noreply@, marketing@, deals@, newsletter@)
+
+ACTIONS:
+1. PROMOTIONAL/MARKETING (clear ads, sales, unsolicited bulk mail only)
+   - action: "archive"
+
+2. GENERAL (personal or professional mail expecting a reply)
+   - action: "respond"
+   - Include suggested_response (friendly, concise, max 200 chars)
+
+3. NEEDS USER INPUT (ambiguous, sensitive, legal/financial, or unsure)
+   - action: "needs_user_input"
+   - Include user_question: a specific question for the inbox owner
+
+Also handle without user input:
+- Service notifications with no reply needed → action: "mark_read"
+- Google/security login alerts, password resets, 2FA notices → action: "mark_read"
+- Newsletters/digests the user likely wants to keep → action: "mark_read"
+
+Respond with ONLY a JSON object (no markdown):
+{{
+    "email_type": "promotion|general|newsletter|service_notification|needs_user_input|other",
+    "action": "archive|respond|mark_read|needs_user_input",
+    "suggested_response": null or "reply text",
+    "user_question": null or "specific question for the user",
+    "reason": "brief explanation"
+}}
+
+Be conservative: when in doubt, use needs_user_input — never archive personal or conversational mail.
+"""
 
 
 def load_dotenv(env_path: Optional[Path] = None) -> None:
@@ -620,42 +862,9 @@ Keep it friendly and under 300 words.
 
     def analyze_and_act_on_email(self, email: dict) -> dict:
         """Use Claude to analyze email and determine action."""
-        analysis_prompt = f"""
-Analyze this email and choose exactly one action.
-
-From: {email['from']}
-Subject: {email['subject']}
-To: {email['to']}
-Body (first 500 chars): {email['body']}
-
-CLASSIFICATION RULES:
-1. PROMOTIONAL/MARKETING (sales, ads, newsletters you did not ask for, bulk mail)
-   - action: "archive"
-
-2. GENERAL (clear personal or professional emails where a polite reply is appropriate)
-   - action: "respond"
-   - Include suggested_response (friendly, concise, max 200 chars)
-
-3. NEEDS USER INPUT (ambiguous, sensitive, legal/financial, or you are unsure how to reply)
-   - action: "needs_user_input"
-   - Include user_question: a specific question for the inbox owner
-
-Also handle these without user input:
-- Service notifications with no reply needed → action: "mark_read"
-- Google/security login alerts, password resets, 2FA notices → action: "mark_read"
-- Newsletters/digests the user likely wants to keep → action: "mark_read"
-
-Respond with ONLY a JSON object (no markdown):
-{{
-    "email_type": "promotion|general|newsletter|service_notification|needs_user_input|other",
-    "action": "archive|respond|mark_read|needs_user_input",
-    "suggested_response": null or "reply text",
-    "user_question": null or "specific question for the user",
-    "reason": "brief explanation"
-}}
-
-Be conservative: if unsure how to respond, use needs_user_input.
-"""
+        own_email = self.get_own_email()
+        personal_senders = load_personal_senders()
+        analysis_prompt = build_analysis_prompt(email, own_email, personal_senders)
 
         response = self.client.messages.create(
             model=self.model,
@@ -668,7 +877,10 @@ Be conservative: if unsure how to respond, use needs_user_input.
         try:
             json_match = re.search(r'\{.*\}', assistant_message, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                analysis = json.loads(json_match.group())
+                return apply_classification_safeguards(
+                    email, analysis, own_email, personal_senders,
+                )
         except json.JSONDecodeError:
             print(f'Could not parse Claude response: {assistant_message}')
 
