@@ -238,6 +238,7 @@ You can leave the workflow disabled as a backup if the Mac mini is offline.
 | Workflow never runs on schedule | Actions disabled, repo inactive, or fork without secrets | Enable Actions; confirm secrets on **your** repo (not upstream); note cron is best-effort |
 | Job succeeds but no emails processed | Inbox empty or all read | Normal — look for `✓ Done — 0 action(s) taken`; run with unread mail to verify |
 | iMessage not received | Expected in CI | iMessage requires macOS Messages — use launchd on a Mac for notifications |
+| Yellow **Node.js 20** deprecation warning on the job | GitHub runner notice (not a failure) | Harmless until Node 24 becomes the default (~June 2026) and Node 20 is removed (~Sept 2026); use current action versions (`checkout@v6`, `setup-python@v6`) |
 
 **View logs:** **Actions →** click a run → **triage** job → **Run email agent (once)**.
 
