@@ -37,31 +37,53 @@ An AI-powered agent that checks your Gmail inbox **every hour** (via macOS launc
 4. Click the **ENABLE** button
 5. You'll be redirected to the Gmail API page
 
-### 2c. Create OAuth 2.0 Credentials
-1. Go to **APIs & Services** > **Credentials** (in left sidebar)
-2. Click **+ CREATE CREDENTIALS** > **OAuth client ID**
-3. If prompted, first click **Configure Consent Screen**
-   - Choose "External" user type
-   - Fill in app name: "Email Agent"
-   - Add your email as contact info
-   - Click **SAVE AND CONTINUE** through remaining steps
-   - Click **SAVE AND CONTINUE** on scopes page
-   - Add yourself as test user
-   - Click **SAVE AND CONTINUE**
-   - Click **BACK TO DASHBOARD**
+### 2c. Configure Google Auth Platform (OAuth consent)
 
-4. Now create the OAuth credential:
-   - Click **+ CREATE CREDENTIALS** > **OAuth client ID**
-   - Application type: **Desktop application**
-   - Name: "Email Agent Desktop"
-   - Click **CREATE**
+Google moved OAuth consent settings from **APIs & Services → OAuth consent screen** to **Google Auth Platform**. Use this path — the old wizard is easy to miss or configure incompletely.
 
-5. Download the credentials:
-   - Click the download icon next to your new credential
-   - Google names the download something like `client_secret_….json` — that is fine
-   - Either **rename** it to `credentials.json` in the project directory, **or** leave the filename as-is and set `GMAIL_CREDENTIALS_FILE` in `.env` to the full path (e.g. `GMAIL_CREDENTIALS_FILE=client_secret_123456789.json`)
-   - See `credentials.example.json` for the expected JSON structure
-   - **Keep this file private!** Do not commit it to git
+**Required Gmail scope for this app:** `https://www.googleapis.com/auth/gmail.modify` (read, send, and modify mail).
+
+1. Open [Google Cloud Console](https://console.cloud.google.com) and select your **Email Agent** project (top bar project picker — must match the project where you create credentials in step 2d).
+2. In the left navigation, open **Google Auth Platform** (hamburger menu ☰ if collapsed).
+   - If you do not see it, search the top search bar for **Google Auth Platform** or go to **APIs & Services → OAuth consent screen** and click **Get started** / **Configure consent screen** — Google redirects to the new UI.
+3. **Branding** (Google Auth Platform → **Branding**):
+   - App name: `Email Agent`
+   - User support email: your Gmail address
+   - Developer contact email: your Gmail address
+   - Click **Save** at the bottom if you changed anything.
+   - *What you should see:* App name "Email Agent" on the consent screen when you sign in.
+4. **Audience** (Google Auth Platform → **Audience**) — **this is the step that fixes Error 403**:
+   - **User type:** External (required for personal Gmail accounts).
+   - **Publishing status:** must be **Testing** (not **In production**). Personal use stays in Testing; you do not need Google verification.
+   - Scroll to **Test users** → click **Add users** (or **+ ADD USERS**).
+   - Enter the **exact** Google account you will use in the browser, e.g. `poulsbopete@gmail.com`.
+   - Click **Save** on the test-user dialog, then **Save** again on the Audience page if shown.
+   - *What you should see:* Your email listed under Test users; Publishing status = Testing.
+5. **Data Access** (Google Auth Platform → **Data Access**):
+   - Click **Add or remove scopes**.
+   - Filter for **Gmail API** and add **`.../auth/gmail.modify`** (full scope name: `https://www.googleapis.com/auth/gmail.modify`).
+   - Save scopes, then **Save** on the Data Access page.
+   - *What you should see:* `gmail.modify` listed under your app's scopes.
+
+Wait ~1 minute after saving test users before running the agent.
+
+### 2d. Create OAuth 2.0 Desktop credentials
+
+1. Go to **APIs & Services** → **Credentials** (same **Email Agent** project as above).
+2. Click **+ CREATE CREDENTIALS** → **OAuth client ID**.
+3. Application type: **Desktop app** (shown as "Desktop application" in some views).
+4. Name: `Email Agent Desktop` → **Create**.
+5. Download the JSON (download icon on the credential row).
+   - Google names the file `client_secret_….json` — that is fine.
+   - Save it as `credentials.json` in the project directory, **or** set `GMAIL_CREDENTIALS_FILE` in `.env` to its path.
+   - See `credentials.example.json` for the expected structure (`"installed"` key with `client_id`, `project_id`, etc.).
+   - **Keep this file private!** Do not commit it to git.
+
+Validate locally (no secrets printed):
+
+```bash
+python3 scripts/check_gmail_credentials.py
+```
 
 ## Step 3: Install the Email Agent
 
@@ -235,25 +257,55 @@ pip install -r requirements.txt
 
 ### "Access blocked: Email Agent has not completed the Google verification process" (Error 403: access_denied)
 
-This is **not a code bug**. Your OAuth app is in **Testing** mode, so only Google accounts you explicitly approve can sign in. The error usually looks like:
+This is **not a code bug**. Google blocked sign-in because your account is not allowed to use the app yet.
 
-> App is in testing mode, can only be accessed by developer-approved testers
+Typical messages:
+- *Access blocked: Email Agent has not completed the Google verification process*
+- *Error 403: access_denied*
+- *App is in testing mode, can only be accessed by developer-approved testers*
 
-**Fix — add yourself as a test user:**
+**Fix checklist (do in order):**
 
-1. Open [Google Cloud Console](https://console.cloud.google.com) and select your **Email Agent** project
-2. Go to **APIs & Services** → **OAuth consent screen**  
-   (In newer console UI: **Google Auth Platform** → **Audience**)
-3. Confirm **Publishing status** is **Testing**
-4. Under **Test users**, click **+ ADD USERS**
-5. Add the **exact Google account** you will sign in with (e.g. `poulsbopete@gmail.com`) — it must match the account you pick in the browser
-6. Click **Save**
-7. Wait about a minute, then retry:
+1. **Same Google Cloud project as `credentials.json`**
+   - Run `python3 scripts/check_gmail_credentials.py` and note the **project_id** (e.g. `email-agent-497113`).
+   - In [Cloud Console](https://console.cloud.google.com), confirm the top-bar project is **Email Agent** / that same project ID — not a different project where you only created credentials.
+
+2. **Google Auth Platform → Audience**
+   - **Publishing status:** **Testing** (if **In production** and unverified, everyone gets blocked — switch back to Testing for personal use).
+   - **Test users:** must include the **exact** account you pick in the browser (e.g. `poulsbopete@gmail.com`).
+   - Click **Save** after adding users (easy to add an email but forget to save).
+
+3. **Google Auth Platform → Data Access**
+   - Scope **`https://www.googleapis.com/auth/gmail.modify`** must be listed (Gmail API → gmail.modify).
+
+4. **Google Auth Platform → Branding**
+   - App name should match what you see on the error screen ("Email Agent").
+
+5. **Browser account**
+   - When the auth URL opens, choose the same Gmail listed as a test user — not a Workspace account or another personal account.
+
+6. **Retry auth** (creates `token.json` on success):
    ```bash
-   venv/bin/python3 email_agent.py --once
+   cd /Users/psimkins/email-agent
+   source venv/bin/activate
+   python3 email_agent.py --once
    ```
+   Complete the browser flow; do not Ctrl+C the terminal while waiting. You should see "The authentication flow has completed" in the browser.
 
-**For personal use:** Keeping the app in **Testing** with test users is fine. You do **not** need Google verification unless you publish the app to the public (move to **Production** for unrelated users).
+7. **Confirm success:** `token.json` appears in the project directory (gitignored).
+
+**Common mistakes**
+
+| Mistake | What happens |
+|--------|----------------|
+| Wrong GCP project selected in console | Test user added to a different project than `credentials.json` |
+| Added test user but did not click **Save** | Google never stores the test user |
+| Signed in with a different Google account than the test user | 403 access_denied |
+| App set to **In production** without verification | Blocked for all non-verified users |
+| Used **Web application** OAuth client instead of **Desktop** | Auth flow may fail or behave oddly |
+| Interrupted first auth (Ctrl+C) before browser finished | No `token.json`; must run `--once` again after fixing test users |
+
+**For personal use:** Keep **Testing** + test users. You do **not** need Google verification unless unrelated people will sign in (Production for the public).
 
 ### "Gmail API authentication failed"
 - Delete `token.json` and run again to re-authenticate
