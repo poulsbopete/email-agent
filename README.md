@@ -1,13 +1,13 @@
 # Email Agent
 
-An AI-powered Gmail triage agent that checks your inbox **every hour** and handles routine email automatically. It archives promotions, drafts or sends replies to general mail, marks newsletters and notifications as read, and flags ambiguous mail for your review.
+An AI-powered Gmail triage agent that checks your inbox **every hour** and handles routine email automatically. It archives promotions, sends replies to general mail, marks newsletters and notifications as read, and flags ambiguous mail for your review.
 
 Built for Python, the [Gmail API](https://developers.google.com/gmail/api), and [Claude](https://www.anthropic.com/) for classification. Primary runtime is **GitHub Actions** (hourly cron); local macOS **launchd** is also supported.
 
 ## Features
 
 - **Archive promotions** — Marketing, sales, and bulk mail are removed from your inbox
-- **Respond to general email** — Creates Gmail drafts by default, or sends replies automatically when configured
+- **Respond to general email** — Sends replies automatically by default (`AUTO_SEND_RESPONSES=true`); set `false` to create Gmail drafts instead
 - **Mark read** — Newsletters and service notifications stay in the inbox but are marked read
 - **Flag for review** — Ambiguous or sensitive emails get the Gmail **IMPORTANT** label, are logged clearly, and appear in the GitHub Actions run summary when running in CI
 - **Hourly scheduling** — Runs once per hour via GitHub Actions (recommended) or macOS `launchd`
@@ -85,7 +85,7 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key for email classification and reply drafting |
-| `AUTO_SEND_RESPONSES` | No | `false` | `true` to send replies automatically; `false` to create Gmail drafts |
+| `AUTO_SEND_RESPONSES` | No | `true` | `true` to send replies automatically; `false` to create Gmail drafts for review |
 | `CLAUDE_MODEL` | No | `claude-sonnet-4-20250514` | Claude model used for analysis |
 | `MAX_EMAILS_PER_RUN` | No | `10` | Maximum unread emails processed per run |
 | `GMAIL_CREDENTIALS_FILE` | No | `credentials.json` | Path to Gmail OAuth client secrets JSON |

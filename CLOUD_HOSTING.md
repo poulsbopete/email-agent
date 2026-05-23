@@ -41,7 +41,7 @@ Use this for hourly Gmail triage. The workflow runs the same command as local sc
 
 | Feature | GitHub Actions | Mac + launchd |
 |---------|----------------|-----------------|
-| Gmail read / archive / draft | ✅ | ✅ |
+| Gmail read / archive / send reply | ✅ | ✅ |
 | Claude classification | ✅ | ✅ |
 | Flag IMPORTANT for review | ✅ | ✅ |
 | Run summary + workflow annotations | ✅ | N/A (use logs) |
@@ -71,12 +71,12 @@ When the agent classifies an email as `needs_user_input`, it marks it **IMPORTAN
 }
 ```
 
-3. Commit and push. The next `--once` run drafts or sends the reply and clears the IMPORTANT label.
+3. Commit and push. The next `--once` run sends the reply (or creates a draft if `AUTO_SEND_RESPONSES=false`) and clears the IMPORTANT label.
 
 | Instruction | Behavior |
 |-------------|----------|
-| `Reply: exact text` | Send/draft that text verbatim |
-| Free-text guidance | Claude drafts a reply from your instruction |
+| `Reply: exact text` | Send that text verbatim (or draft if `AUTO_SEND_RESPONSES=false`) |
+| Free-text guidance | Claude drafts a reply from your instruction, then sends (or saves draft) |
 | `archive` | Archive the thread |
 | `skip` | Clear IMPORTANT; no reply |
 
@@ -352,10 +352,13 @@ In addition to [.env.example](.env.example), these support headless runs:
 
 | Variable | Purpose |
 |----------|---------|
+| `AUTO_SEND_RESPONSES` | `true` (default) sends general/review replies via Gmail API; `false` creates drafts instead |
 | `GMAIL_TOKEN_JSON` | Full OAuth token JSON (same as `token.json`) |
 | `GMAIL_CREDENTIALS_JSON` | Full client secrets JSON (same as `credentials.json`) |
 | `GMAIL_TOKEN_FILE` / `GMAIL_CREDENTIALS_FILE` | Optional paths after materialization (defaults unchanged) |
 | `CI` | Set automatically in GitHub Actions; enables run summary and workflow annotations |
+
+The hourly workflow sets `AUTO_SEND_RESPONSES=true` explicitly so GitHub Actions sends replies rather than saving drafts.
 
 If the token expires and refresh fails in CI, re-run local `python email_agent.py --once` and update `GMAIL_TOKEN_JSON`.
 

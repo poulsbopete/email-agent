@@ -511,7 +511,7 @@ class EmailAgent:
         self.dry_run = dry_run
         self.max_emails = max_emails
         self.gmail_service = None
-        self.auto_send = os.getenv('AUTO_SEND_RESPONSES', 'false').lower() in ('1', 'true', 'yes')
+        self.auto_send = os.getenv('AUTO_SEND_RESPONSES', 'true').lower() in ('1', 'true', 'yes')
         self.model = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
         self._own_email: Optional[str] = None
 
