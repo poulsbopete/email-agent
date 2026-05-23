@@ -106,11 +106,42 @@ def get_token_path() -> Path:
     return resolve_path(os.getenv('GMAIL_TOKEN_FILE', 'token.json'))
 
 
+def materialize_gmail_secrets_from_env() -> None:
+    """Write GMAIL_*_JSON env vars to disk for OAuth libraries (CI/cloud hosting)."""
+    creds_json = os.getenv('GMAIL_CREDENTIALS_JSON', '').strip()
+    if creds_json:
+        path = get_credentials_path()
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(creds_json)
+
+    token_json = os.getenv('GMAIL_TOKEN_JSON', '').strip()
+    if token_json:
+        path = get_token_path()
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(token_json)
+
+
+def has_gmail_credentials() -> bool:
+    """True when OAuth client secrets are available from file or env."""
+    if os.getenv('GMAIL_CREDENTIALS_JSON', '').strip():
+        return True
+    return get_credentials_path().exists()
+
+
+def is_interactive_auth_available() -> bool:
+    """Whether the Desktop OAuth browser flow can run (local terminal, not CI)."""
+    if os.getenv('CI', '').lower() in ('1', 'true', 'yes'):
+        return False
+    return sys.stdin.isatty()
+
+
 def exit_if_credentials_missing(credentials_path: Optional[Path] = None) -> None:
     """Exit with setup instructions when the OAuth client secrets file is missing."""
-    path = credentials_path or get_credentials_path()
-    if path.exists():
+    if has_gmail_credentials():
         return
+    path = credentials_path or get_credentials_path()
 
     env_override = os.getenv('GMAIL_CREDENTIALS_FILE')
     print('Error: Gmail OAuth credentials file not found.')
@@ -214,6 +245,13 @@ class EmailAgent:
         credentials_path = get_credentials_path()
         token_path = get_token_path()
         exit_if_credentials_missing(credentials_path)
+
+        if not is_interactive_auth_available():
+            print('Error: Gmail token missing or expired; interactive OAuth is unavailable here.')
+            print('  Run locally once: python email_agent.py --once')
+            print('  Then copy token.json into the GMAIL_TOKEN_JSON repository/CI secret.')
+            print('  See CLOUD_HOSTING.md for GitHub Actions and other interim hosting.')
+            sys.exit(1)
 
         print(
             'First-time Gmail sign-in: open the URL below in your browser '
@@ -571,6 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main():
     load_dotenv()
+    materialize_gmail_secrets_from_env()
     parser = build_parser()
     args = parser.parse_args()
 

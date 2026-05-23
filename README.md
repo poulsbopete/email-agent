@@ -91,6 +91,8 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | `MAX_EMAILS_PER_RUN` | No | `10` | Maximum unread emails processed per run |
 | `GMAIL_CREDENTIALS_FILE` | No | `credentials.json` | Path to Gmail OAuth client secrets JSON |
 | `GMAIL_TOKEN_FILE` | No | `token.json` | Path to saved OAuth refresh token (created on first auth) |
+| `GMAIL_CREDENTIALS_JSON` | No | — | Full client secrets JSON string (CI/cloud; written to `GMAIL_CREDENTIALS_FILE` path) |
+| `GMAIL_TOKEN_JSON` | No | — | Full token JSON string (CI/cloud; written to `GMAIL_TOKEN_FILE` path) |
 | `CHECK_INTERVAL` | No | `300` | Seconds between checks in legacy `--daemon` mode only |
 
 ## Usage
@@ -193,6 +195,10 @@ launchctl bootout gui/$(id -u)/com.email.agent        # uninstall
 
 Complete details, prerequisites, and troubleshooting: **[SCHEDULING.md](SCHEDULING.md)**.
 
+### Running before you have a Mac mini
+
+If you do not have always-on Mac hardware yet, you can run hourly `--once` cycles in **GitHub Actions** or another cron host. Gmail and Claude work; **iMessage does not**. See **[CLOUD_HOSTING.md](CLOUD_HOSTING.md)** for setup, tradeoffs, and the included workflow template.
+
 ## Security
 
 Never commit secrets to version control. Keep these files private:
@@ -232,6 +238,7 @@ Runtime files (not in git): `.env`, `credentials.json`, `token.json`, `pending_r
 | [QUICK_START.md](QUICK_START.md) | Minimal 5-minute install checklist |
 | [SETUP_GUIDE.md](SETUP_GUIDE.md) | Full Gmail OAuth, API keys, and troubleshooting |
 | [SCHEDULING.md](SCHEDULING.md) | Hourly launchd setup, logs, and management |
+| [CLOUD_HOSTING.md](CLOUD_HOSTING.md) | Interim GitHub Actions / cloud cron until Mac mini |
 
 ## License
 

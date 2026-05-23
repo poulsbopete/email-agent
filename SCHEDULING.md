@@ -92,3 +92,7 @@ This is not recommended for laptop use — launchd + `--once` is more battery-fr
 | No credentials yet | Use `--dry-run` to preview; complete Gmail setup from SETUP_GUIDE.md |
 
 See also [SETUP_GUIDE.md](SETUP_GUIDE.md) for Gmail and API setup.
+
+## Cloud / interim hosting (no Mac mini yet)
+
+launchd and iMessage require macOS. Until you have a Mac mini, run `email_agent.py --once` on a schedule via GitHub Actions or another cron host — see **[CLOUD_HOSTING.md](CLOUD_HOSTING.md)**.

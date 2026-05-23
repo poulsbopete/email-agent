@@ -1,0 +1,48 @@
+# Hourly Gmail triage until Mac mini + launchd is available.
+# iMessage does NOT work in GitHub Actions (macOS Messages / AppleScript only).
+#
+# Setup:
+#   1. Run `python email_agent.py --once` locally to create token.json
+#   2. Add repository secrets (Settings → Secrets and variables → Actions):
+#        ANTHROPIC_API_KEY     — from console.anthropic.com
+#        GMAIL_TOKEN_JSON      — full contents of token.json (one line JSON)
+#        GMAIL_CREDENTIALS_JSON — optional; full contents of credentials.json
+#   3. Enable workflow_dispatch to test manually before relying on cron
+#
+# See CLOUD_HOSTING.md for tradeoffs and alternatives.
+
+name: Hourly email agent
+
+on:
+  schedule:
+    # Every hour at :05 UTC (GitHub cron is best-effort; may slip during high load)
+    - cron: '5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run email agent (once)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+          GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
+          MAX_EMAILS_PER_RUN: '10'
+          AUTO_SEND_RESPONSES: 'false'
+        run: python email_agent.py --once --max-emails 10
