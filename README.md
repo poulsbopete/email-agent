@@ -195,9 +195,16 @@ launchctl bootout gui/$(id -u)/com.email.agent        # uninstall
 
 Complete details, prerequisites, and troubleshooting: **[SCHEDULING.md](SCHEDULING.md)**.
 
-### Running before you have a Mac mini
+### Running before you have a Mac mini (GitHub Actions)
 
-If you do not have always-on Mac hardware yet, you can run hourly `--once` cycles in **GitHub Actions** or another cron host. Gmail and Claude work; **iMessage does not**. See **[CLOUD_HOSTING.md](CLOUD_HOSTING.md)** for setup, tradeoffs, and the included workflow template.
+If you do not have always-on Mac hardware yet, use the included **GitHub Actions** workflow for hourly Gmail triage:
+
+1. Complete Gmail OAuth once locally (`python email_agent.py --once`) to create `token.json`
+2. Push the repo to GitHub and enable **Actions**
+3. Add secrets: `ANTHROPIC_API_KEY`, `GMAIL_TOKEN_JSON`, and optionally `GMAIL_CREDENTIALS_JSON`
+4. Test with **Actions → Hourly email agent → Run workflow**
+
+Gmail and Claude work in CI; **iMessage does not**. Use a direct Anthropic API key in GitHub (not a local LiteLLM proxy). Full step-by-step instructions, cron details, token refresh, and troubleshooting: **[CLOUD_HOSTING.md — GitHub Actions setup](CLOUD_HOSTING.md#github-actions-setup-step-by-step)**.
 
 ## Security
 
@@ -238,7 +245,7 @@ Runtime files (not in git): `.env`, `credentials.json`, `token.json`, `pending_r
 | [QUICK_START.md](QUICK_START.md) | Minimal 5-minute install checklist |
 | [SETUP_GUIDE.md](SETUP_GUIDE.md) | Full Gmail OAuth, API keys, and troubleshooting |
 | [SCHEDULING.md](SCHEDULING.md) | Hourly launchd setup, logs, and management |
-| [CLOUD_HOSTING.md](CLOUD_HOSTING.md) | Interim GitHub Actions / cloud cron until Mac mini |
+| [CLOUD_HOSTING.md](CLOUD_HOSTING.md) | GitHub Actions setup (step-by-step), cloud cron, Mac mini migration |
 
 ## License
 
