@@ -1,5 +1,4 @@
-# Hourly Gmail triage until Mac mini + launchd is available.
-# iMessage does NOT work in GitHub Actions (macOS Messages / AppleScript only).
+# Hourly Gmail triage via GitHub Actions.
 #
 # Setup:
 #   1. Run `python email_agent.py --once` locally to create token.json

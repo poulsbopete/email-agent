@@ -1,6 +1,6 @@
 # Cloud and interim hosting
 
-The recommended long-term setup is a **Mac mini** with hourly **launchd** ([SCHEDULING.md](SCHEDULING.md)) so you get Gmail triage **and** iMessage notifications. Until that hardware is ready, you can run the same `email_agent.py --once` cycle in the cloud or on any machine you leave on.
+The recommended setup is **GitHub Actions** with hourly cron (`.github/workflows/hourly-email.yml`). For local always-on scheduling on a Mac, use hourly **launchd** ([SCHEDULING.md](SCHEDULING.md)).
 
 ## What transfers vs what breaks
 
@@ -9,44 +9,111 @@ The recommended long-term setup is a **Mac mini** with hourly **launchd** ([SCHE
 | Gmail OAuth (`--once`) | Browser auth once → `token.json` | Pre-auth locally; store token in secrets (`GMAIL_TOKEN_JSON`) |
 | Claude / Anthropic | `ANTHROPIC_API_KEY` in `.env` | Same — set host secret; no LiteLLM proxy required |
 | LiteLLM proxy (`localhost:4001`) | Optional local routing | **Not used** — call Anthropic directly in cloud |
-| iMessage alerts | Works via AppleScript | **Does not work** — macOS Messages only |
+| Review notifications | stdout + `pending_review.json` on disk | stdout + **GitHub Actions run summary** + `::warning::` annotations |
 | `pending_review.json` | Persists on disk | Ephemeral unless you add storage (artifact, S3, etc.) |
+| `review_instructions.json` | Optional repo file | **Works in CI** — commit/push instructions for the next run |
 
-Ambiguous emails are still flagged in Gmail and queued in `pending_review.json` for that run; you just will not get an iMessage ping until you move back to a Mac.
+Ambiguous emails are flagged with the Gmail **IMPORTANT** label in all environments. In CI, the agent also writes a markdown summary to `$GITHUB_STEP_SUMMARY` and emits workflow annotations. To tell the agent how to respond, see [Answering agent questions](#answering-agent-questions).
 
 ## Option comparison (ranked)
 
-| Option | Cost | Feasibility | Gmail | Claude | iMessage | OAuth path |
-|--------|------|-------------|-------|--------|----------|------------|
-| **GitHub Actions cron** | Free tier | ★★★★★ Best free interim | ✅ | ✅ | ❌ | Local auth once → `GMAIL_TOKEN_JSON` secret |
-| **Keep laptop on + launchd** | Free | ★★★★★ If machine available | ✅ | ✅ | ✅ | Same as today |
-| **Railway / Render / Fly.io cron** | ~$0–7/mo | ★★★★ | ✅ | ✅ | ❌ | Same secrets pattern as GHA |
-| **Cloud Run + Scheduler / Lambda + EventBridge** | Pennies | ★★★ | ✅ | ✅ | ❌ | Same; more setup |
+| Option | Cost | Feasibility | Gmail | Claude | Review alerts | OAuth path |
+|--------|------|-------------|-------|--------|---------------|------------|
+| **GitHub Actions cron** | Free tier | ★★★★★ Best free interim | ✅ | ✅ | ✅ Run summary + logs | Local auth once → `GMAIL_TOKEN_JSON` secret |
+| **Keep laptop on + launchd** | Free | ★★★★★ If machine available | ✅ | ✅ | ✅ Logs + IMPORTANT label | Same as today |
+| **Railway / Render / Fly.io cron** | ~$0–7/mo | ★★★★ | ✅ | ✅ | ✅ Logs + IMPORTANT label | Same secrets pattern as GHA |
+| **Cloud Run + Scheduler / Lambda + EventBridge** | Pennies | ★★★ | ✅ | ✅ | ✅ Logs + IMPORTANT label | Same; more setup |
 | **Cursor SDK cloud** | API usage | ★ Not for this | ❌ | N/A | ❌ | Wrong tool — see below |
 
-### GitHub Actions (recommended interim)
+### GitHub Actions (recommended)
 
-**Pros:** Free, no server to maintain, matches `--once` + hourly schedule, workflow included at [.github/workflows/hourly-email.yml](.github/workflows/hourly-email.yml).
+**Pros:** Free, no server to maintain, matches `--once` + hourly schedule, workflow included at [.github/workflows/hourly-email.yml](.github/workflows/hourly-email.yml), review items visible in run summary.
 
-**Cons:** No iMessage; cron timing is UTC and can be delayed; `pending_review.json` does not persist between runs; public repos should use private repo or encrypted secrets only.
+**Cons:** Cron timing is UTC and can be delayed; `pending_review.json` does not persist between runs; you answer flagged mail via `review_instructions.json` or Gmail (see below); public repos should use private repo or encrypted secrets only.
 
 For full setup instructions, see **[GitHub Actions setup](#github-actions-setup-step-by-step)** below.
 
 ## GitHub Actions setup (step-by-step)
 
-Use this when you want hourly Gmail triage **before** you have a Mac mini with launchd. The workflow runs the same command as local scheduling: `python email_agent.py --once`.
+Use this for hourly Gmail triage. The workflow runs the same command as local scheduling: `python email_agent.py --once`.
 
-### What works vs what does not
+### What works in GitHub Actions
 
 | Feature | GitHub Actions | Mac + launchd |
 |---------|----------------|-----------------|
 | Gmail read / archive / draft | ✅ | ✅ |
 | Claude classification | ✅ | ✅ |
-| iMessage when unsure | ❌ | ✅ |
+| Flag IMPORTANT for review | ✅ | ✅ |
+| Run summary + workflow annotations | ✅ | N/A (use logs) |
 | `pending_review.json` persists | ❌ (ephemeral each run) | ✅ |
 | OAuth browser flow in CI | ❌ (blocked when `CI=true`) | ✅ (first run only) |
 
-Ambiguous emails are still flagged with the **IMPORTANT** label in Gmail. You just will not get an iMessage ping until you move to a Mac.
+When the agent needs your input, check:
+
+1. **GitHub Actions → run → Summary tab** — markdown list of emails with sender, subject, question, and **Gmail ID**
+2. **Job logs** — search for `NEEDS USER INPUT` or workflow `::warning::` annotations
+3. **Gmail** — filter by **IMPORTANT** label
+
+Then follow [Answering agent questions](#answering-agent-questions) below.
+
+### Answering agent questions
+
+When the agent classifies an email as `needs_user_input`, it marks it **IMPORTANT** (and read) but does **not** reply until you provide instructions.
+
+#### Option 1 — `review_instructions.json` (best for GitHub Actions)
+
+1. Copy the **Gmail ID** from the Actions run summary.
+2. Add an entry to `review_instructions.json` in the repo (see [`review_instructions.example.json`](review_instructions.example.json)):
+
+```json
+{
+  "19e55251c1dbc8b5": "Reply: Yes, I'm receiving email — thanks for checking!"
+}
+```
+
+3. Commit and push. The next `--once` run drafts or sends the reply and clears the IMPORTANT label.
+
+| Instruction | Behavior |
+|-------------|----------|
+| `Reply: exact text` | Send/draft that text verbatim |
+| Free-text guidance | Claude drafts a reply from your instruction |
+| `archive` | Archive the thread |
+| `skip` | Clear IMPORTANT; no reply |
+
+4. After success, remove the entry from `review_instructions.json` and push again (the agent also removes it when processing succeeds).
+
+#### Option 2 — Gmail thread with `[agent]`
+
+In the flagged thread, send a message from your account (e.g. a note to yourself in the thread) containing:
+
+```text
+[agent] Reply confirming receipt and thank them for the test.
+```
+
+The next run detects your message after the flagged email. The `[agent]` prefix avoids treating normal replies to the sender as instructions.
+
+#### Option 3 — Reply yourself in Gmail (manual)
+
+Handle the email in Gmail as you normally would. The agent skips mail that is no longer unread. Remove **IMPORTANT** when done.
+
+#### Local Mac (launchd)
+
+Same as above, or add an `"instruction"` field to `pending_review.json`:
+
+```json
+{
+  "id": "19e55251c1dbc8b5",
+  "instruction": "Reply: Thanks!"
+}
+```
+
+#### What does not work well in CI
+
+| Approach | Why |
+|----------|-----|
+| Editing `pending_review.json` only | Gitignored and not persisted between GitHub Actions runs |
+| GitHub Issues per email | Not implemented |
+| `workflow_dispatch` JSON input | One-off; not stored between cron runs |
 
 ### Prerequisites
 
@@ -155,6 +222,7 @@ Always test manually before relying on the hourly cron.
 5. Expand **Run email agent (once)** and look for:
    - `✓ Gmail API authenticated`
    - `✓ Done — N action(s) taken` (N may be 0 if inbox is empty)
+6. If any emails need review, open the **Summary** tab on the run page.
 
 If the job fails, see [Troubleshooting](#troubleshooting-github-actions) below.
 
@@ -212,10 +280,9 @@ When your always-on Mac is set up ([SCHEDULING.md](SCHEDULING.md)):
    ```bash
    ./scripts/install_launchd.sh
    ```
-2. Verify a local run and iMessage:
+2. Verify a local run:
    ```bash
    python email_agent.py --once
-   python email_agent.py --test-imessage
    ```
 3. **Disable** the cloud workflow (pick one):
    - **Recommended:** In GitHub → **Actions → Hourly email agent → ⋯ → Disable workflow**
@@ -240,7 +307,7 @@ You can leave the workflow disabled as a backup if the Mac mini is offline.
 | Unread mail visible in Gmail but agent reports 0 | Mail not in Primary tab (Updates/Promotions/Social) **or stale `GMAIL_TOKEN_JSON`** | Default query is `is:unread in:inbox`. If logs show the right account but 0 matches, mail may be archived/outside inbox. If logs show the wrong account, update `GMAIL_TOKEN_JSON` (run `./scripts/sync_github_gmail_secret.sh`). |
 | Agent processed mail but inbox still shows unread | `needs_user_input` used to leave UNREAD | Fixed: those emails are now marked read and flagged IMPORTANT. Re-run workflow after updating secrets. |
 | New mail not processed immediately after removing launchd | GitHub cron is **hourly** (UTC `:05`), not instant | Use **Actions → Run workflow** for immediate check; next cron is at `:05` past the hour UTC. First scheduled run may wait up to ~1 hour after enabling the workflow. |
-| iMessage not received | Expected in CI | iMessage requires macOS Messages — use launchd on a Mac for notifications |
+| Missed review notification | Did not check run summary | Open **Actions → run → Summary** tab, or search logs for `NEEDS USER INPUT`; also check Gmail **IMPORTANT** label |
 | Yellow **Node.js 20** deprecation warning on the job | GitHub runner notice (not a failure) | Harmless until Node 24 becomes the default (~June 2026) and Node 20 is removed (~Sept 2026); use current action versions (`checkout@v6`, `setup-python@v6`) |
 
 **View logs:** **Actions →** click a run → **triage** job → **Run email agent (once)**.
@@ -259,7 +326,7 @@ Set environment variables (not files): `ANTHROPIC_API_KEY`, `GMAIL_TOKEN_JSON`, 
 
 **Pros:** More predictable schedule than GitHub Actions; can add Slack/email webhooks later.
 
-**Cons:** Small monthly cost; still no iMessage.
+**Cons:** Small monthly cost; review alerts are logs + IMPORTANT label only (no GitHub summary).
 
 ### Google Cloud Run + Cloud Scheduler / AWS Lambda + EventBridge
 
@@ -277,7 +344,7 @@ Use the SDK for automation around the repo (e.g. “fix this PR”), not for hou
 
 ### Keep your laptop running
 
-When your Mac is available, `./scripts/install_launchd.sh` remains the best experience: iMessage works, token stays on disk, no secret rotation in GitHub.
+When your Mac is available, `./scripts/install_launchd.sh` works for local scheduling: token stays on disk, logs go to `~/Library/Logs/email-agent/`.
 
 ## Environment variables for CI/cloud
 
@@ -288,24 +355,16 @@ In addition to [.env.example](.env.example), these support headless runs:
 | `GMAIL_TOKEN_JSON` | Full OAuth token JSON (same as `token.json`) |
 | `GMAIL_CREDENTIALS_JSON` | Full client secrets JSON (same as `credentials.json`) |
 | `GMAIL_TOKEN_FILE` / `GMAIL_CREDENTIALS_FILE` | Optional paths after materialization (defaults unchanged) |
+| `CI` | Set automatically in GitHub Actions; enables run summary and workflow annotations |
 
 If the token expires and refresh fails in CI, re-run local `python email_agent.py --once` and update `GMAIL_TOKEN_JSON`.
 
 Interactive OAuth is blocked when `CI=true` (set automatically in GitHub Actions).
-
-## Notifications without iMessage (future)
-
-Until you have a Mac mini, consider:
-
-- Checking Gmail for **IMPORTANT** labels the agent applies
-- Adding a Slack/Discord webhook (not implemented yet)
-- Running workflow with `workflow_dispatch` when you want a manual check
 
 ## Moving to Mac mini
 
 1. Copy `.env`, `credentials.json`, and `token.json` to the mini (or re-auth once).
 2. `./scripts/install_launchd.sh`
 3. Disable or delete the GitHub Actions workflow (or leave it as backup).
-4. Set `IMESSAGE_NOTIFY_TO` and run `python email_agent.py --test-imessage`.
 
 See [SCHEDULING.md](SCHEDULING.md) for launchd details.

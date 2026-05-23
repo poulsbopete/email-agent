@@ -4,7 +4,7 @@
 An AI agent checks your Gmail **every hour** and:
 - 🚫 Archives promotional/marketing emails
 - 💬 Responds to general emails (draft or send)
-- 📱 iMessages you when it needs your input on how to reply
+- ⚠️ Flags ambiguous mail with Gmail IMPORTANT + logs for your review
 - 📰 Marks newsletters and notifications as read
 
 ## Installation (5 minutes)
@@ -27,7 +27,7 @@ Download as credentials.json (or client_secret.json)
 ### 3. Configure environment
 ```bash
 cp .env.example .env
-# Edit .env: ANTHROPIC_API_KEY, IMESSAGE_NOTIFY_TO
+# Edit .env: ANTHROPIC_API_KEY
 pip install -r requirements.txt
 ```
 
@@ -36,7 +36,10 @@ pip install -r requirements.txt
 python3 email_agent.py --once
 ```
 
-## Hourly scheduling (macOS)
+### 5. GitHub Actions (recommended)
+Push to GitHub, add secrets (`ANTHROPIC_API_KEY`, `GMAIL_TOKEN_JSON`), enable **Hourly email agent** workflow. See [CLOUD_HOSTING.md](CLOUD_HOSTING.md).
+
+## Hourly scheduling (macOS, optional)
 
 ```bash
 chmod +x scripts/install_launchd.sh
@@ -51,7 +54,6 @@ See **SCHEDULING.md** for logs and troubleshooting.
 |---------|---------|
 | `python3 email_agent.py --once` | One inbox check |
 | `python3 email_agent.py --once --dry-run` | Preview with mock emails |
-| `python3 email_agent.py --test-imessage` | Test iMessage notification |
 | `python3 email_agent.py --daemon` | Legacy continuous loop |
 
 ## How It Works
@@ -61,21 +63,28 @@ Promotion          → Archive
 Newsletter         → Mark read
 Service alert      → Mark read
 General email      → Reply (draft or send)
-Unclear/sensitive  → iMessage you + queue in pending_review.json
+Unclear/sensitive  → IMPORTANT label + log + pending_review.json
 ```
+
+## When the agent needs your input
+
+- **GitHub Actions:** Actions → run → **Summary** tab and job logs
+- **Gmail:** Filter by **IMPORTANT** label
+- **Local:** Terminal or `~/Library/Logs/email-agent/email-agent.log`
 
 ## File Structure
 ```
 email-agent/
 ├── email_agent.py          ← Main agent
-├── imessage.py             ← iMessage via AppleScript
 ├── scripts/install_launchd.sh
 ├── launchd/com.email.agent.plist.template
+├── .github/workflows/hourly-email.yml
 ├── SCHEDULING.md           ← Hourly launchd setup
+├── CLOUD_HOSTING.md        ← GitHub Actions setup
 ├── SETUP_GUIDE.md          ← Full setup
 ├── .env.example
 ├── credentials.json        ← Gmail OAuth (keep secret)
-└── pending_review.json     ← Queued emails needing input
+└── pending_review.json     ← Queued emails needing input (local only)
 ```
 
 ## Security

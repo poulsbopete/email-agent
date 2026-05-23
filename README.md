@@ -1,16 +1,16 @@
 # Email Agent
 
-An AI-powered Gmail triage agent that checks your inbox **every hour** and handles routine email automatically. It archives promotions, drafts or sends replies to general mail, marks newsletters and notifications as read, and texts you via iMessage when it needs your input.
+An AI-powered Gmail triage agent that checks your inbox **every hour** and handles routine email automatically. It archives promotions, drafts or sends replies to general mail, marks newsletters and notifications as read, and flags ambiguous mail for your review.
 
-Built for macOS with Python, the [Gmail API](https://developers.google.com/gmail/api), [Claude](https://www.anthropic.com/) for classification, and Apple Messages for notifications.
+Built for Python, the [Gmail API](https://developers.google.com/gmail/api), and [Claude](https://www.anthropic.com/) for classification. Primary runtime is **GitHub Actions** (hourly cron); local macOS **launchd** is also supported.
 
 ## Features
 
 - **Archive promotions** — Marketing, sales, and bulk mail are removed from your inbox
 - **Respond to general email** — Creates Gmail drafts by default, or sends replies automatically when configured
 - **Mark read** — Newsletters and service notifications stay in the inbox but are marked read
-- **iMessage when unsure** — Ambiguous or sensitive emails are flagged, queued in `pending_review.json`, and summarized in an iMessage
-- **Hourly scheduling** — Runs once per hour via macOS `launchd` (recommended), or manually on demand
+- **Flag for review** — Ambiguous or sensitive emails get the Gmail **IMPORTANT** label, are logged clearly, and appear in the GitHub Actions run summary when running in CI
+- **Hourly scheduling** — Runs once per hour via GitHub Actions (recommended) or macOS `launchd`
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ Built for macOS with Python, the [Gmail API](https://developers.google.com/gmail
 | **Python 3.10+** | Virtual environment recommended |
 | **Gmail API OAuth** | Google Cloud project with Desktop OAuth credentials |
 | **Anthropic API key** | From [console.anthropic.com](https://console.anthropic.com) |
-| **macOS** | Required for iMessage notifications (Gmail triage works on any OS, but iMessage does not) |
+| **GitHub repo** (for CI) | Repository secrets for API key and Gmail token |
 
 ## Quick start
 
@@ -43,7 +43,6 @@ cp .env.example .env
 Edit `.env` and set at minimum:
 
 - `ANTHROPIC_API_KEY` — your Anthropic API key
-- `IMESSAGE_NOTIFY_TO` — your phone number or Apple ID email (macOS only)
 
 See [Configuration](#configuration) for all options.
 
@@ -64,19 +63,20 @@ On first run, a browser window opens for Gmail authorization. After you approve 
 ```bash
 # Preview classification without touching Gmail
 python3 email_agent.py --once --dry-run
-
-# Verify iMessage notifications (macOS)
-python3 email_agent.py --test-imessage
 ```
 
-### 6. Install hourly scheduling (macOS)
+### 6. GitHub Actions (recommended)
+
+Push to GitHub, add secrets (`ANTHROPIC_API_KEY`, `GMAIL_TOKEN_JSON`), and enable the **Hourly email agent** workflow. See **[CLOUD_HOSTING.md — GitHub Actions setup](CLOUD_HOSTING.md#github-actions-setup-step-by-step)**.
+
+### 7. Local hourly scheduling (optional, macOS)
 
 ```bash
 chmod +x scripts/install_launchd.sh
 ./scripts/install_launchd.sh
 ```
 
-This installs a `launchd` job that runs `email_agent.py --once` every hour. See [Scheduling](#scheduling) and [SCHEDULING.md](SCHEDULING.md) for logs and troubleshooting.
+See [Scheduling](#scheduling) and [SCHEDULING.md](SCHEDULING.md) for logs and troubleshooting.
 
 ## Configuration
 
@@ -85,7 +85,6 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key for email classification and reply drafting |
-| `IMESSAGE_NOTIFY_TO` | For iMessage | — | Phone number (`+15551234567`) or Apple ID email of an existing Messages contact |
 | `AUTO_SEND_RESPONSES` | No | `false` | `true` to send replies automatically; `false` to create Gmail drafts |
 | `CLAUDE_MODEL` | No | `claude-sonnet-4-20250514` | Claude model used for analysis |
 | `MAX_EMAILS_PER_RUN` | No | `10` | Maximum unread emails processed per run |
@@ -98,16 +97,13 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 ## Usage
 
 ```bash
-# One inbox check (default; used by launchd)
+# One inbox check (default; used by launchd and GitHub Actions)
 python3 email_agent.py --once
 
 # Preview actions with mock emails (no Gmail changes)
 python3 email_agent.py --once --dry-run
 
-# Send a test iMessage and exit
-python3 email_agent.py --test-imessage
-
-# Legacy: run continuously in a loop (prefer launchd + --once)
+# Legacy: run continuously in a loop (prefer launchd or GitHub Actions + --once)
 python3 email_agent.py --daemon
 
 # Process fewer/more emails per run
@@ -122,9 +118,26 @@ python3 email_agent.py --once --max-emails 5
 | Newsletter / digest | Mark read |
 | Service notification | Mark read |
 | General personal or professional | Draft or send a reply |
-| Unclear or sensitive | Flag IMPORTANT, queue in `pending_review.json`, iMessage you |
+| Unclear or sensitive | Flag **IMPORTANT**, queue in `pending_review.json`, log for review |
 
 By default, the agent is conservative: when unsure how to reply, it asks you rather than guessing.
+
+## When the agent needs your input
+
+When an email is ambiguous or sensitive, the agent:
+
+1. Applies the Gmail **IMPORTANT** label (check your inbox)
+2. Logs sender, subject, and question to stdout (visible in GitHub Actions job logs)
+3. Writes a markdown summary to the **GitHub Actions run summary** when `CI=true`
+4. Appends to `pending_review.json` locally (ephemeral in CI — does not persist between runs unless committed)
+
+**Where to look:**
+
+| Runtime | How to see review items |
+|---------|-------------------------|
+| **GitHub Actions** | Actions → run → **Summary** tab, and **Run email agent (once)** logs |
+| **Local / launchd** | Terminal output or `~/Library/Logs/email-agent/email-agent.log` |
+| **Gmail** | Filter by **IMPORTANT** label |
 
 ## Gmail OAuth setup
 
@@ -152,27 +165,15 @@ For personal use, **Testing** mode with test users is sufficient — no Google v
 
 For detailed screenshots and troubleshooting, see **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.
 
-## iMessage setup and limitations
-
-Notifications are sent through the macOS **Messages** app via AppleScript (`imessage.py`).
-
-**Setup:**
-
-1. Set `IMESSAGE_NOTIFY_TO` in `.env` to a phone number or Apple ID email that already has an iMessage conversation on this Mac
-2. Sign in to Messages on the Mac running the agent
-3. Run `python3 email_agent.py --test-imessage` to verify delivery
-4. Grant **Automation** permission if prompted: **System Settings → Privacy & Security → Automation** → allow Terminal or Python to control **Messages**
-
-**Limitations:**
-
-- macOS only — iMessage is skipped on other platforms
-- Requires Messages signed in and an existing contact/conversation for the recipient
-- launchd runs may fail silently without Automation permission; test interactively first
-- The agent sends a summary and question; you reply in Gmail or tell the agent how to respond
-
 ## Scheduling
 
-The recommended setup is **hourly `launchd` + `--once`**, not a long-running daemon. This is more battery-friendly on a laptop.
+### GitHub Actions (recommended)
+
+The included workflow runs `email_agent.py --once` every hour. Full setup: **[CLOUD_HOSTING.md](CLOUD_HOSTING.md)**.
+
+### macOS launchd (optional)
+
+For local always-on scheduling on a Mac:
 
 ```bash
 chmod +x scripts/install_launchd.sh
@@ -193,18 +194,7 @@ tail -f ~/Library/Logs/email-agent/email-agent.log    # watch logs
 launchctl bootout gui/$(id -u)/com.email.agent        # uninstall
 ```
 
-Complete details, prerequisites, and troubleshooting: **[SCHEDULING.md](SCHEDULING.md)**.
-
-### Running before you have a Mac mini (GitHub Actions)
-
-If you do not have always-on Mac hardware yet, use the included **GitHub Actions** workflow for hourly Gmail triage:
-
-1. Complete Gmail OAuth once locally (`python email_agent.py --once`) to create `token.json`
-2. Push the repo to GitHub and enable **Actions**
-3. Add secrets: `ANTHROPIC_API_KEY`, `GMAIL_TOKEN_JSON`, and optionally `GMAIL_CREDENTIALS_JSON`
-4. Test with **Actions → Hourly email agent → Run workflow**
-
-Gmail and Claude work in CI; **iMessage does not**. Use a direct Anthropic API key in GitHub (not a local LiteLLM proxy). Full step-by-step instructions, cron details, token refresh, and troubleshooting: **[CLOUD_HOSTING.md — GitHub Actions setup](CLOUD_HOSTING.md#github-actions-setup-step-by-step)**.
+Complete details: **[SCHEDULING.md](SCHEDULING.md)**.
 
 ## Security
 
@@ -223,16 +213,18 @@ These paths are listed in `.gitignore`. Email content is sent to the Anthropic A
 ```
 email-agent/
 ├── email_agent.py              # Main CLI and Gmail agent
-├── imessage.py                 # iMessage notifications via AppleScript
 ├── requirements.txt            # Python dependencies
 ├── .env.example                # Environment variable template
 ├── credentials.example.json    # Gmail OAuth file format reference
+├── .github/workflows/
+│   └── hourly-email.yml        # Hourly GitHub Actions cron
 ├── scripts/
-│   └── install_launchd.sh      # Install hourly launchd job
+│   └── install_launchd.sh      # Install hourly launchd job (macOS)
 ├── launchd/
 │   └── com.email.agent.plist.template
 ├── SETUP_GUIDE.md              # Full Gmail and API setup
 ├── QUICK_START.md              # Minimal install reference
+├── CLOUD_HOSTING.md            # GitHub Actions and cloud hosting
 └── SCHEDULING.md               # launchd scheduling details
 ```
 
@@ -244,8 +236,8 @@ Runtime files (not in git): `.env`, `credentials.json`, `token.json`, `pending_r
 |-----|-------------|
 | [QUICK_START.md](QUICK_START.md) | Minimal 5-minute install checklist |
 | [SETUP_GUIDE.md](SETUP_GUIDE.md) | Full Gmail OAuth, API keys, and troubleshooting |
+| [CLOUD_HOSTING.md](CLOUD_HOSTING.md) | GitHub Actions setup (step-by-step), cloud cron |
 | [SCHEDULING.md](SCHEDULING.md) | Hourly launchd setup, logs, and management |
-| [CLOUD_HOSTING.md](CLOUD_HOSTING.md) | GitHub Actions setup (step-by-step), cloud cron, Mac mini migration |
 
 ## License
 

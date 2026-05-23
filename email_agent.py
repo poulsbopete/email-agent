@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Autonomous Email Agent for Gmail
-Archives promotions, responds to general emails, notifies via iMessage when unsure.
+Archives promotions, responds to general emails, flags ambiguous mail for review.
 """
 
 import argparse
@@ -24,12 +24,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from imessage import format_review_notification, send_imessage
-
 # Gmail API scopes
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 SCRIPT_DIR = Path(__file__).resolve().parent
 PENDING_REVIEW_FILE = SCRIPT_DIR / 'pending_review.json'
+REVIEW_INSTRUCTIONS_FILE = SCRIPT_DIR / 'review_instructions.json'
+AGENT_INSTRUCTION_PREFIX = re.compile(r'^\s*\[agent\]\s*(.+)', re.IGNORECASE | re.DOTALL)
 
 MOCK_EMAILS = [
     {
@@ -109,6 +109,23 @@ def get_token_path() -> Path:
 def is_ci_environment() -> bool:
     """True when running in CI (GitHub Actions, etc.) — no interactive OAuth."""
     return os.getenv('CI', '').lower() in ('1', 'true', 'yes')
+
+
+def _github_workflow_escape(text: str) -> str:
+    """Escape text for GitHub Actions workflow commands (::warning:: etc.)."""
+    return text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+
+
+def append_github_step_summary(markdown: str) -> None:
+    """Append markdown to GITHUB_STEP_SUMMARY when running in GitHub Actions."""
+    summary_path = os.getenv('GITHUB_STEP_SUMMARY', '').strip()
+    if not summary_path:
+        return
+    try:
+        with open(summary_path, 'a', encoding='utf-8') as handle:
+            handle.write(markdown)
+    except OSError as exc:
+        print(f'  ⚠ Could not write GitHub step summary: {exc}', file=sys.stderr)
 
 
 def materialize_gmail_secrets_from_env() -> None:
@@ -195,6 +212,38 @@ def save_pending_review(items: list) -> None:
     PENDING_REVIEW_FILE.write_text(json.dumps(items, indent=2))
 
 
+def load_review_instructions() -> dict:
+    """Load message_id -> instruction mappings committed for CI/cloud runs."""
+    if not REVIEW_INSTRUCTIONS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(REVIEW_INSTRUCTIONS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if isinstance(data, dict):
+        return {str(key): str(value) for key, value in data.items() if value}
+    return {}
+
+
+def save_review_instructions(instructions: dict) -> None:
+    """Persist review instructions (processed entries are removed)."""
+    if instructions:
+        REVIEW_INSTRUCTIONS_FILE.write_text(json.dumps(instructions, indent=2) + '\n')
+    elif REVIEW_INSTRUCTIONS_FILE.exists():
+        REVIEW_INSTRUCTIONS_FILE.unlink()
+
+
+def collect_review_instructions() -> dict:
+    """Merge repo instructions with optional per-entry instructions in pending_review.json."""
+    instructions = load_review_instructions()
+    for item in load_pending_review():
+        message_id = item.get('id')
+        instruction = item.get('instruction', '').strip()
+        if message_id and instruction:
+            instructions[str(message_id)] = instruction
+    return instructions
+
+
 def queue_for_review(email: dict, question: str, analysis: dict, dry_run: bool = False) -> None:
     """Add an email to the pending review queue."""
     if dry_run:
@@ -202,6 +251,7 @@ def queue_for_review(email: dict, question: str, analysis: dict, dry_run: bool =
     pending = load_pending_review()
     entry = {
         'id': email['id'],
+        'thread_id': email.get('thread_id'),
         'from': email['from'],
         'subject': email['subject'],
         'question': question,
@@ -221,6 +271,7 @@ class EmailAgent:
         self.gmail_service = None
         self.auto_send = os.getenv('AUTO_SEND_RESPONSES', 'false').lower() in ('1', 'true', 'yes')
         self.model = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
+        self._own_email: Optional[str] = None
 
         if not dry_run:
             self.setup_gmail_api()
@@ -359,6 +410,214 @@ class EmailAgent:
         except Exception as exc:
             return f'Could not parse body: {exc}'
 
+    def get_own_email(self) -> str:
+        """Cached mailbox address for detecting user-authored thread instructions."""
+        if self._own_email:
+            return self._own_email
+        if self.dry_run:
+            self._own_email = 'you@gmail.com'
+            return self._own_email
+        profile = self.gmail_service.users().getProfile(userId='me').execute()
+        self._own_email = profile.get('emailAddress', '')
+        return self._own_email
+
+    def get_important_emails(self, max_results: int = 20) -> list:
+        """Fetch inbox emails flagged IMPORTANT (awaiting user review)."""
+        if self.dry_run:
+            return []
+
+        try:
+            results = self.gmail_service.users().messages().list(
+                userId='me',
+                q='label:important in:inbox',
+                maxResults=max_results,
+            ).execute()
+            emails = []
+            for msg in results.get('messages', []):
+                email_detail = self.get_email_details(msg['id'])
+                if email_detail:
+                    emails.append(email_detail)
+            return emails
+        except HttpError as error:
+            print(f'Error listing IMPORTANT emails: {error}')
+            return []
+
+    def find_thread_agent_instruction(self, email: dict) -> Optional[str]:
+        """Return instruction text if the user replied in-thread with [agent] ..."""
+        thread_id = email.get('thread_id')
+        if not thread_id or self.dry_run:
+            return None
+
+        own_email = self.get_own_email().lower()
+        original_ts = int(email.get('timestamp') or 0)
+
+        try:
+            thread = self.gmail_service.users().threads().get(
+                userId='me',
+                id=thread_id,
+                format='full',
+            ).execute()
+        except HttpError as error:
+            print(f'Error reading thread {thread_id}: {error}')
+            return None
+
+        for message in thread.get('messages', []):
+            if message.get('id') == email.get('id'):
+                continue
+            if int(message.get('internalDate', 0)) <= original_ts:
+                continue
+
+            headers = message.get('payload', {}).get('headers', [])
+            sender = next((h['value'] for h in headers if h['name'] == 'From'), '')
+            if parse_sender_address(sender).lower() != own_email:
+                continue
+
+            body = self.get_email_body(message)
+            match = AGENT_INSTRUCTION_PREFIX.search(body.strip())
+            if match:
+                return match.group(1).strip()
+        return None
+
+    def compose_reply_from_instruction(self, email: dict, instruction: str) -> Optional[str]:
+        """Turn a user instruction into reply text, or None for dismiss-only actions."""
+        instruction = instruction.strip()
+        if not instruction:
+            return None
+
+        lowered = instruction.lower()
+        if lowered in ('skip', 'dismiss', 'ignore', 'no reply', 'no-reply'):
+            return None
+        if lowered == 'archive':
+            return None
+
+        reply_match = re.match(r'^reply:\s*(.+)$', instruction, re.IGNORECASE | re.DOTALL)
+        if reply_match:
+            return reply_match.group(1).strip()
+
+        prompt = f"""
+Write a concise email reply based on the user's instruction.
+
+Original email:
+From: {email['from']}
+Subject: {email['subject']}
+Body:
+{email.get('full_body', email.get('body', ''))[:1500]}
+
+User instruction: {instruction}
+
+Respond with ONLY the reply body text (no subject, no markdown).
+Keep it friendly and under 300 words.
+"""
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=400,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        return response.content[0].text.strip()
+
+    def clear_review_state(self, message_id: str) -> None:
+        """Remove review markers after an instruction has been handled."""
+        if self.dry_run:
+            return
+
+        try:
+            self.gmail_service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'removeLabelIds': ['IMPORTANT']},
+            ).execute()
+        except HttpError as error:
+            print(f'Error clearing IMPORTANT label: {error}')
+
+        pending = [item for item in load_pending_review() if item.get('id') != message_id]
+        save_pending_review(pending)
+
+        instructions = load_review_instructions()
+        if message_id in instructions:
+            del instructions[message_id]
+            save_review_instructions(instructions)
+
+    def apply_review_instruction(self, email: dict, instruction: str) -> bool:
+        """Execute a user-provided instruction for a flagged email."""
+        lowered = instruction.strip().lower()
+        subject = email.get('subject', 'No subject')[:50]
+
+        if lowered == 'archive':
+            if not self.dry_run:
+                self.gmail_service.users().messages().modify(
+                    userId='me',
+                    id=email['id'],
+                    body={'removeLabelIds': ['INBOX', 'UNREAD', 'IMPORTANT']},
+                ).execute()
+            print(f'  ✓ Archived from review instruction: {subject}')
+            self.clear_review_state(email['id'])
+            return True
+
+        if lowered in ('skip', 'dismiss', 'ignore', 'no reply', 'no-reply'):
+            if not self.dry_run:
+                self.gmail_service.users().messages().modify(
+                    userId='me',
+                    id=email['id'],
+                    body={'removeLabelIds': ['IMPORTANT']},
+                ).execute()
+            print(f'  ✓ Dismissed review item: {subject}')
+            self.clear_review_state(email['id'])
+            return True
+
+        reply_text = self.compose_reply_from_instruction(email, instruction)
+        if not reply_text:
+            print(f'  ⚠ Empty reply for review instruction: {subject}')
+            return False
+
+        if self.auto_send:
+            ok = self.send_reply(email, reply_text)
+        else:
+            ok = self.create_draft(email, reply_text)
+
+        if ok:
+            if not self.dry_run:
+                self.gmail_service.users().messages().modify(
+                    userId='me',
+                    id=email['id'],
+                    body={'removeLabelIds': ['UNREAD']},
+                ).execute()
+            self.clear_review_state(email['id'])
+            action = 'Sent reply' if self.auto_send else 'Created draft'
+            print(f'  ✓ {action} from review instruction: {subject}')
+        return ok
+
+    def process_review_responses(self) -> int:
+        """Apply queued instructions before processing new unread mail."""
+        instructions = collect_review_instructions()
+        important_emails = self.get_important_emails()
+
+        work: dict[str, tuple[dict, str]] = {}
+        for message_id, instruction in instructions.items():
+            email = self.get_email_details(message_id)
+            if email:
+                work[message_id] = (email, instruction)
+            else:
+                print(f'  ⚠ Review instruction references unknown Gmail ID: {message_id}')
+
+        for email in important_emails:
+            message_id = email['id']
+            if message_id in work:
+                continue
+            thread_instruction = self.find_thread_agent_instruction(email)
+            if thread_instruction:
+                work[message_id] = (email, thread_instruction)
+
+        if not work:
+            return 0
+
+        print(f'\n📋 Processing {len(work)} review instruction(s)...')
+        processed = 0
+        for message_id, (email, instruction) in work.items():
+            print(f"  Instruction for: {email['subject'][:50]}...")
+            if self.apply_review_instruction(email, instruction):
+                processed += 1
+        return processed
+
     def analyze_and_act_on_email(self, email: dict) -> dict:
         """Use Claude to analyze email and determine action."""
         analysis_prompt = f"""
@@ -472,10 +731,44 @@ Be conservative: if unsure how to respond, use needs_user_input.
             print(f'Error creating draft: {error}')
             return False
 
-    def notify_user(self, email: dict, question: str) -> bool:
-        """Send iMessage notification when user input is needed."""
-        message = format_review_notification(email, question)
-        return send_imessage(message, dry_run=self.dry_run)
+    def report_needs_user_input(self, email: dict, question: str) -> None:
+        """Log emails needing user input; in CI, also write GitHub summary and annotations."""
+        sender = email.get('from', 'Unknown')
+        subject = email.get('subject', 'No subject')
+        email_id = email.get('id', '')
+
+        print('')
+        print('=' * 60)
+        print('NEEDS USER INPUT')
+        print(f'  From: {sender}')
+        print(f'  Subject: {subject}')
+        print(f'  Question: {question}')
+        if email_id:
+            print(f'  Gmail ID: {email_id}')
+        print('=' * 60)
+
+        if is_ci_environment():
+            title = 'Email needs your input'
+            body = _github_workflow_escape(f'From: {sender} — {subject}')
+            print(f'::warning title={title}::{body}')
+
+            summary_lines = [
+                '### ⚠️ Email needs your input',
+                '',
+                f'- **From:** {sender}',
+                f'- **Subject:** {subject}',
+                f'- **Question:** {question}',
+            ]
+            if email_id:
+                summary_lines.append(f'- **Gmail ID:** `{email_id}`')
+            summary_lines.extend([
+                '',
+                '**How to respond:** add an entry to `review_instructions.json` and push, '
+                'or reply in the Gmail thread with `[agent] your instruction` '
+                '(see CLOUD_HOSTING.md).',
+            ])
+            summary_lines.append('')
+            append_github_step_summary('\n'.join(summary_lines))
 
     def execute_action(self, email: dict, analysis: dict) -> bool:
         """Execute the determined action on the email."""
@@ -530,7 +823,7 @@ Be conservative: if unsure how to respond, use needs_user_input.
                         },
                     ).execute()
                 queue_for_review(email, question, analysis, dry_run=self.dry_run)
-                self.notify_user(email, question)
+                self.report_needs_user_input(email, question)
                 email_type = analysis.get('email_type', 'unknown')
                 print(f"  ⚠ Queued for review [{email_type}]: {email['subject'][:50]}")
                 return True
@@ -546,6 +839,11 @@ Be conservative: if unsure how to respond, use needs_user_input.
         mode = '[dry-run] ' if self.dry_run else ''
         query = os.getenv('GMAIL_UNREAD_QUERY', 'is:unread in:inbox')
         print(f"\n{mode}📧 Checking inbox at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        review_processed = self.process_review_responses()
+        if review_processed:
+            print(f'  ✓ Handled {review_processed} review instruction(s)')
+
         print(f'  Gmail query: {query!r} (max {self.max_emails})')
 
         emails = self.get_unread_emails()
@@ -561,6 +859,7 @@ Be conservative: if unsure how to respond, use needs_user_input.
         print(f'  Found {len(emails)} unread emails')
 
         actions_taken = 0
+        review_count = 0
         for email in emails:
             print(f"\n  Processing: {email['subject'][:50]}... from {email['from'][:30]}")
 
@@ -572,6 +871,16 @@ Be conservative: if unsure how to respond, use needs_user_input.
 
             if self.execute_action(email, analysis):
                 actions_taken += 1
+                if analysis.get('action') == 'needs_user_input':
+                    review_count += 1
+
+        if review_count and is_ci_environment():
+            print('')
+            print(f'::notice title=Review required::{review_count} email(s) flagged IMPORTANT in Gmail — see step summary above')
+            append_github_step_summary(
+                f'\n**{review_count} email(s)** flagged with the Gmail **IMPORTANT** label. '
+                'Check your inbox or re-run after you decide how to respond.\n'
+            )
 
         return actions_taken
 
@@ -606,7 +915,7 @@ Be conservative: if unsure how to respond, use needs_user_input.
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description='Gmail agent: archive promotions, respond to general mail, iMessage when unsure.',
+        description='Gmail agent: archive promotions, respond to general mail, flag ambiguous mail for review.',
     )
     parser.add_argument(
         '--once',
@@ -624,11 +933,6 @@ def build_parser() -> argparse.ArgumentParser:
         help='Preview actions without Gmail changes; uses mock emails if Gmail unavailable',
     )
     parser.add_argument(
-        '--test-imessage',
-        action='store_true',
-        help='Send a test iMessage to IMESSAGE_NOTIFY_TO and exit',
-    )
-    parser.add_argument(
         '--max-emails',
         type=int,
         default=int(os.getenv('MAX_EMAILS_PER_RUN', '10')),
@@ -642,14 +946,6 @@ def main():
     materialize_gmail_secrets_from_env()
     parser = build_parser()
     args = parser.parse_args()
-
-    if args.test_imessage:
-        load_dotenv()
-        ok = send_imessage(
-            '📧 Email Agent test\n\nIf you received this, iMessage notifications are working.',
-            dry_run=args.dry_run,
-        )
-        sys.exit(0 if ok else 1)
 
     if args.dry_run:
         print('Dry-run mode: no Gmail modifications will be made.')

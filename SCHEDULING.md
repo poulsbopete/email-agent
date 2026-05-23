@@ -2,6 +2,8 @@
 
 The email agent is designed to run **once per hour** via macOS `launchd`, not as an infinite daemon loop.
 
+**Recommended runtime:** GitHub Actions (see [CLOUD_HOSTING.md](CLOUD_HOSTING.md)). Use launchd when you want local scheduling on a Mac.
+
 ## Quick install
 
 ```bash
@@ -28,17 +30,12 @@ python3 email_agent.py --once
 
 # Preview without Gmail credentials
 python3 email_agent.py --once --dry-run
-
-# Test iMessage only
-python3 email_agent.py --test-imessage
 ```
 
 ## Prerequisites before scheduling
 
 1. **Gmail OAuth** — `credentials.json` (or `GMAIL_CREDENTIALS_FILE`) and first-run auth to create `token.json`
 2. **Anthropic API key** — in `.env` as `ANTHROPIC_API_KEY`
-3. **iMessage recipient** — in `.env` as `IMESSAGE_NOTIFY_TO` (your phone or Apple ID email)
-4. **Messages app** — signed in on this Mac
 
 Copy `.env.example` to `.env` and fill in values:
 
@@ -62,17 +59,7 @@ cp .env.example .env
 
 launchd does not load `.env` automatically, but `email_agent.py` reads `.env` from the project directory on each run.
 
-## iMessage automation permissions
-
-The first time launchd (or Terminal) sends an iMessage, macOS may prompt for **Automation** permission:
-
-**System Settings → Privacy & Security → Automation** → allow Terminal (or `python3`) to control **Messages**.
-
-If iMessage fails silently from launchd, grant automation to the Python binary or run a manual test first:
-
-```bash
-python3 email_agent.py --test-imessage
-```
+When the agent needs your input, look for `NEEDS USER INPUT` blocks in these logs. Emails are also flagged with the Gmail **IMPORTANT** label.
 
 ## Legacy daemon mode
 
@@ -90,11 +77,10 @@ This is not recommended for laptop use — launchd + `--once` is more battery-fr
 |---------|-----|
 | Job not running | `launchctl print gui/$(id -u)/com.email.agent` |
 | Gmail auth in launchd | Run `python3 email_agent.py --once` interactively once to create `token.json` |
-| iMessage not delivered | Check `IMESSAGE_NOTIFY_TO`, Messages signed in, Automation permission |
 | No credentials yet | Use `--dry-run` to preview; complete Gmail setup from SETUP_GUIDE.md |
 
 See also [SETUP_GUIDE.md](SETUP_GUIDE.md) for Gmail and API setup.
 
-## Cloud / interim hosting (no Mac mini yet)
+## Cloud / interim hosting (recommended)
 
-launchd and iMessage require macOS. Until you have a Mac mini, run `email_agent.py --once` on a schedule via GitHub Actions or another cron host — see **[CLOUD_HOSTING.md](CLOUD_HOSTING.md)**.
+For hourly triage without a Mac mini, use **GitHub Actions** — see **[CLOUD_HOSTING.md](CLOUD_HOSTING.md)**. Review items appear in the Actions run summary and job logs.

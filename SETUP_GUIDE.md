@@ -1,10 +1,10 @@
 # Autonomous Email Agent Setup Guide
 
-An AI-powered agent that checks your Gmail inbox **every hour** (via macOS launchd) to:
+An AI-powered agent that checks your Gmail inbox **every hour** (via GitHub Actions or macOS launchd) to:
 - ✅ Archive promotional/marketing emails
 - ✅ Respond to general emails (send or draft, configurable)
 - ✅ Mark newsletters and service notifications as read
-- ✅ iMessage you when unsure how to respond (needs your input)
+- ✅ Flag ambiguous mail for your review (IMPORTANT label + logs / GitHub run summary)
 
 ## Prerequisites
 
@@ -121,7 +121,6 @@ $env:ANTHROPIC_API_KEY="your-api-key-here"
 Or create a `.env` file (see `.env.example`):
 ```
 ANTHROPIC_API_KEY=your-api-key-here
-IMESSAGE_NOTIFY_TO=+15551234567
 # AUTO_SEND_RESPONSES=false   # create drafts instead of sending
 # GMAIL_CREDENTIALS_FILE=credentials.json
 # GMAIL_TOKEN_FILE=token.json
@@ -155,15 +154,10 @@ Preview without Gmail credentials:
 python3 email_agent.py --once --dry-run
 ```
 
-Test iMessage notifications:
-```bash
-python3 email_agent.py --test-imessage
-```
-
 Each run will:
-1. ✅ Fetch unread primary inbox emails
+1. ✅ Fetch unread inbox emails
 2. ✅ Classify each with Claude
-3. ✅ Archive promotions, respond to general mail, or iMessage you when unsure
+3. ✅ Archive promotions, respond to general mail, or flag ambiguous mail for review
 
 ## Step 5: Hourly Scheduling (Recommended — macOS)
 
@@ -201,7 +195,7 @@ CHECK_INTERVAL=300 python3 email_agent.py --daemon
 | **Newsletter/Digest** | Mark Read | Stays in inbox, marked read |
 | **Service Notification** | Mark Read | No reply needed |
 | **General** | Respond | Sends reply or creates draft (`AUTO_SEND_RESPONSES`) |
-| **Needs user input** | Queue + iMessage | Flags IMPORTANT, saves to `pending_review.json`, texts you |
+| **Needs user input** | Flag for review | Flags IMPORTANT, saves to `pending_review.json`, logs question |
 
 ### Auto-Response Examples
 
@@ -227,8 +221,17 @@ By default, general email replies are saved as **Gmail drafts** for your review:
 AUTO_SEND_RESPONSES=true   # in .env — send replies automatically
 ```
 
-### iMessage notifications
-Set `IMESSAGE_NOTIFY_TO` in `.env` to your phone number or Apple ID email. The Messages app must be signed in on this Mac.
+### When the agent needs your input
+
+Ambiguous emails get the Gmail **IMPORTANT** label. The agent logs sender, subject, and question to stdout.
+
+| Runtime | Where to look |
+|---------|---------------|
+| **GitHub Actions** | Actions → run → **Summary** tab; job logs (`NEEDS USER INPUT`) |
+| **Local / launchd** | Terminal or `~/Library/Logs/email-agent/email-agent.log` |
+| **Gmail** | Filter by **IMPORTANT** label |
+
+`pending_review.json` persists locally; in CI it is ephemeral (does not survive between runs).
 
 ### Email Categories Handled
 
