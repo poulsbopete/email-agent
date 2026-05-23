@@ -1,0 +1,299 @@
+# Autonomous Email Agent Setup Guide
+
+An AI-powered agent that checks your Gmail inbox **every hour** (via macOS launchd) to:
+- ✅ Archive promotional/marketing emails
+- ✅ Respond to general emails (send or draft, configurable)
+- ✅ Mark newsletters and service notifications as read
+- ✅ iMessage you when unsure how to respond (needs your input)
+
+## Prerequisites
+
+- Python 3.8+ installed on your laptop
+- An active Gmail account
+- An Anthropic API key (from https://console.anthropic.com)
+- A Google Cloud project with Gmail API enabled
+
+## Step 1: Get Your Anthropic API Key
+
+1. Go to https://console.anthropic.com
+2. Sign in or create an account
+3. Navigate to **API Keys** in the left sidebar
+4. Click **Create Key** and copy it
+5. Save it somewhere safe - you'll need it next
+
+## Step 2: Set Up Google Cloud Project and Gmail API
+
+### 2a. Create a Google Cloud Project
+1. Go to https://console.cloud.google.com
+2. Click the project dropdown at the top
+3. Click **NEW PROJECT**
+4. Name it "Email Agent" and click **CREATE**
+5. Wait a moment for the project to be created
+
+### 2b. Enable Gmail API
+1. In Google Cloud Console, go to **APIs & Services** > **Library**
+2. Search for "Gmail API"
+3. Click on **Gmail API**
+4. Click the **ENABLE** button
+5. You'll be redirected to the Gmail API page
+
+### 2c. Create OAuth 2.0 Credentials
+1. Go to **APIs & Services** > **Credentials** (in left sidebar)
+2. Click **+ CREATE CREDENTIALS** > **OAuth client ID**
+3. If prompted, first click **Configure Consent Screen**
+   - Choose "External" user type
+   - Fill in app name: "Email Agent"
+   - Add your email as contact info
+   - Click **SAVE AND CONTINUE** through remaining steps
+   - Click **SAVE AND CONTINUE** on scopes page
+   - Add yourself as test user
+   - Click **SAVE AND CONTINUE**
+   - Click **BACK TO DASHBOARD**
+
+4. Now create the OAuth credential:
+   - Click **+ CREATE CREDENTIALS** > **OAuth client ID**
+   - Application type: **Desktop application**
+   - Name: "Email Agent Desktop"
+   - Click **CREATE**
+
+5. Download the credentials:
+   - Click the download icon next to your new credential
+   - Save the file as `credentials.json` in the project directory
+   - Or set `GMAIL_CREDENTIALS_FILE` in `.env` to point at your download path
+   - See `credentials.example.json` for the expected JSON structure
+   - **Keep this file private!**
+
+## Step 3: Install the Email Agent
+
+### 3a. Clone or download the agent files
+```bash
+# Create a directory for the agent
+mkdir email-agent
+cd email-agent
+
+# Copy these files into the directory:
+# - email_agent.py
+# - requirements.txt
+# - credentials.json (from Step 2c)
+```
+
+### 3b. Install Python dependencies
+```bash
+# Create a virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install requirements
+pip install -r requirements.txt
+```
+
+### 3c. Set your API key
+```bash
+# Linux/Mac
+export ANTHROPIC_API_KEY="your-api-key-here"
+
+# Windows (PowerShell)
+$env:ANTHROPIC_API_KEY="your-api-key-here"
+```
+
+Or create a `.env` file (see `.env.example`):
+```
+ANTHROPIC_API_KEY=your-api-key-here
+IMESSAGE_NOTIFY_TO=+15551234567
+# AUTO_SEND_RESPONSES=false   # create drafts instead of sending
+# GMAIL_CREDENTIALS_FILE=credentials.json
+# GMAIL_TOKEN_FILE=token.json
+```
+
+## Step 4: Run the Agent
+
+### First Run - Gmail Authorization
+On first run, the agent will open a browser window asking you to authorize access to your Gmail:
+
+```bash
+python3 email_agent.py --once
+```
+
+1. A browser will open (may take a moment)
+2. Select your personal Gmail account
+3. Review the permissions and click **Allow**
+4. The browser will show "The authentication flow has completed"
+5. Close the browser and return to your terminal
+
+The agent will save your credentials in `token.json` for future runs.
+
+### Subsequent Runs
+Run one inbox check manually:
+```bash
+python3 email_agent.py --once
+```
+
+Preview without Gmail credentials:
+```bash
+python3 email_agent.py --once --dry-run
+```
+
+Test iMessage notifications:
+```bash
+python3 email_agent.py --test-imessage
+```
+
+Each run will:
+1. ✅ Fetch unread primary inbox emails
+2. ✅ Classify each with Claude
+3. ✅ Archive promotions, respond to general mail, or iMessage you when unsure
+
+## Step 5: Hourly Scheduling (Recommended — macOS)
+
+Install the hourly launchd job:
+
+```bash
+chmod +x scripts/install_launchd.sh
+./scripts/install_launchd.sh
+```
+
+See **[SCHEDULING.md](SCHEDULING.md)** for full details, logs, and troubleshooting.
+
+### Legacy: Continuous daemon mode
+```bash
+CHECK_INTERVAL=300 python3 email_agent.py --daemon
+```
+
+### Windows Task Scheduler
+1. Open **Task Scheduler**
+2. Click **Create Basic Task**
+3. Name: "Email Agent"
+4. Trigger: "At startup" or "On a schedule"
+5. Action: Start a program
+   - Program: `C:\Python310\python.exe` (your Python path)
+   - Arguments: `C:\path\to\email_agent.py`
+6. Click **Finish**
+
+## Configuration
+
+### Email Response Rules
+
+| Classification | Agent Action | What Happens |
+|---|---|---|
+| **Promotion/Marketing** | Archive | Removed from inbox |
+| **Newsletter/Digest** | Mark Read | Stays in inbox, marked read |
+| **Service Notification** | Mark Read | No reply needed |
+| **General** | Respond | Sends reply or creates draft (`AUTO_SEND_RESPONSES`) |
+| **Needs user input** | Queue + iMessage | Flags IMPORTANT, saves to `pending_review.json`, texts you |
+
+### Auto-Response Examples
+
+**Personal Email:**
+```
+Thanks for reaching out! I'll get back to you soon.
+```
+
+**Recruiter Email:**
+```
+Thanks for your interest! Please contact my work email for professional inquiries.
+```
+
+**o11ybot Support:**
+```
+Thanks for reporting this! We're looking into [the issue] and will follow up soon.
+```
+
+### Auto-send vs drafts
+By default, general email replies are saved as **Gmail drafts** for your review:
+
+```bash
+AUTO_SEND_RESPONSES=true   # in .env — send replies automatically
+```
+
+### iMessage notifications
+Set `IMESSAGE_NOTIFY_TO` in `.env` to your phone number or Apple ID email. The Messages app must be signed in on this Mac.
+
+### Email Categories Handled
+
+The agent recognizes and handles:
+- **promotion** - Sales pitches, ads, marketing → Auto-archived
+- **newsletter** - Newsletters, digests, roundups → Auto-marked read
+- **service_notification** - Confirmations, alerts, resets → Auto-marked read
+- **personal** - Friends, family, acquaintances → Auto-responds (friendly) + Flags
+- **recruiter** - Job offers, recruiters, hiring → Auto-responds (polite) + Flags
+- **o11ybot_support** - Bug reports, feature requests, support for o11ybot → Auto-responds (helpful) + Notifies you
+- **other_support** - General support requests, inquiries → Flags for review (waits for you)
+- **other** - Anything unclassified → Flags for review
+
+## Troubleshooting
+
+### "ModuleNotFoundError: No module named 'anthropic'"
+You haven't installed the requirements:
+```bash
+pip install -r requirements.txt
+```
+
+### "Gmail OAuth credentials file not found" / FileNotFoundError: credentials.json
+- Download OAuth client secrets from Google Cloud Console (Desktop application)
+- Save as `credentials.json` in the project directory, or set `GMAIL_CREDENTIALS_FILE` in `.env`
+- See `credentials.example.json` and Step 2c above
+
+### "Gmail API authentication failed"
+- Delete `token.json` and run again to re-authenticate
+- Ensure your Google Cloud project has Gmail API enabled
+- Verify `credentials.json` is in the correct directory
+
+### Agent not responding to emails
+The agent is designed to be conservative - it only auto-responds to obvious marketing and digest emails. Personal emails are flagged for your review.
+
+Check the logs for why an email was classified as "flag_for_review"
+
+### Running multiple agents
+You can run separate agent instances for different email accounts:
+```bash
+# Agent 1 - personal email
+ANTHROPIC_API_KEY=key1 python3 email_agent.py --config personal.env
+
+# Agent 2 - work email (in separate terminal)
+ANTHROPIC_API_KEY=key2 python3 email_agent.py --config work.env
+```
+
+## Privacy & Security
+
+⚠️ **Important Security Notes:**
+
+1. **credentials.json** - This file grants API access to your Gmail
+   - Keep it private
+   - Don't commit to public repos
+   - Delete if you stop using the agent
+
+2. **token.json** - Auto-generated refresh token
+   - Also sensitive
+   - Keep it private
+
+3. **API Key** - Your Anthropic key
+   - Keep it secret
+   - Use environment variables, not hardcoded values
+   - Never commit to version control
+
+4. **Email Content** - Claude API sees email content
+   - Anthropic doesn't store conversations by default
+   - Review Anthropic's privacy policy at https://www.anthropic.com/privacy
+
+## Support & Customization
+
+The agent is fully customizable. You can modify:
+- Email analysis criteria (in `analyze_and_act_on_email()`)
+- Actions (add custom responses, create filters, forward emails, etc.)
+- Claude model used (currently Opus, but can use Sonnet for cost savings)
+
+For advanced features, check the Claude API documentation:
+https://docs.claude.com/en/docs_site_map.md
+
+## Stopping the Agent
+
+Press **Ctrl+C** in the terminal where it's running.
+
+If running via launchctl (Mac), use:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.email.agent.plist
+```
+
+---
+
+**Questions?** Check the Claude documentation or ask in the Anthropic community forum.

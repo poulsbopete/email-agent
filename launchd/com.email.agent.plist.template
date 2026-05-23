@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.email.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>__SCRIPT__</string>
+        <string>--once</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKDIR__</string>
+
+    <!-- Run every hour (3600 seconds) -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!-- Also run once when loaded -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_DIR__/email-agent.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__LOG_DIR__/email-agent-error.log</string>
+
+    <!-- Ensure Messages can receive automation when launchd triggers the job -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>
