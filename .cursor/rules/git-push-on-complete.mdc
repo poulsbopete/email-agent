@@ -1,0 +1,21 @@
+---
+description: Commit and push to GitHub after completing codebase changes
+alwaysApply: true
+---
+
+# Git: Commit and Push When Done
+
+After completing any task that modifies the codebase:
+
+1. Run `git status`, `git diff`, and `git log` to review changes.
+2. Stage only safe files — **never** commit secrets:
+   - `.env`, `credentials.json`, `token.json`, `client_secret.json`, `pending_review.json`
+3. Commit only when there are real changes (no empty commits).
+4. Write a concise commit message that explains **why**, not just what changed.
+5. Push to origin: `git@github.com:poulsbopete/email-agent.git`
+
+## Safety
+
+- Never update git config.
+- Never force push to `main`.
+- If only secret or ignored files changed, do not commit; warn the user instead.
