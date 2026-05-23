@@ -132,11 +132,21 @@ You need a Google Cloud project with the Gmail API enabled and OAuth 2.0 credent
 2. Create a project and enable the **Gmail API**
 3. Configure the OAuth consent screen (External; add yourself as a test user)
 4. Create **OAuth 2.0 credentials** → Desktop application
-5. Download the JSON file and save it as `credentials.json` (or set `GMAIL_CREDENTIALS_FILE` in `.env`)
+5. Download the JSON file — Google may name it `client_secret_….json`. Save it as `credentials.json` in the project directory, or set `GMAIL_CREDENTIALS_FILE` in `.env` to point at the downloaded file
 
 The expected file format is shown in [credentials.example.json](credentials.example.json).
 
 On first run, the agent opens a browser for authorization and writes `token.json`. If auth fails later, delete `token.json` and run `--once` again.
+
+### OAuth troubleshooting
+
+| Error | Fix |
+|-------|-----|
+| **403 access_denied** — "Access blocked" / "App is in testing mode" | Add your Google account under **OAuth consent screen → Test users** (or **Google Auth Platform → Audience**). Use the exact account you sign in with. See [SETUP_GUIDE.md — Error 403](SETUP_GUIDE.md#access-blocked-email-agent-has-not-completed-the-google-verification-process-error-403-access_denied). |
+| **credentials.json not found** | Rename the downloaded client secret to `credentials.json`, or set `GMAIL_CREDENTIALS_FILE` in `.env` |
+| **Auth expired / invalid** | Delete `token.json` and run `venv/bin/python3 email_agent.py --once` again |
+
+For personal use, **Testing** mode with test users is sufficient — no Google verification required unless you publish the app publicly.
 
 For detailed screenshots and troubleshooting, see **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.
 

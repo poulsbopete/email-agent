@@ -58,10 +58,10 @@ An AI-powered agent that checks your Gmail inbox **every hour** (via macOS launc
 
 5. Download the credentials:
    - Click the download icon next to your new credential
-   - Save the file as `credentials.json` in the project directory
-   - Or set `GMAIL_CREDENTIALS_FILE` in `.env` to point at your download path
+   - Google names the download something like `client_secret_….json` — that is fine
+   - Either **rename** it to `credentials.json` in the project directory, **or** leave the filename as-is and set `GMAIL_CREDENTIALS_FILE` in `.env` to the full path (e.g. `GMAIL_CREDENTIALS_FILE=client_secret_123456789.json`)
    - See `credentials.example.json` for the expected JSON structure
-   - **Keep this file private!**
+   - **Keep this file private!** Do not commit it to git
 
 ## Step 3: Install the Email Agent
 
@@ -230,8 +230,30 @@ pip install -r requirements.txt
 
 ### "Gmail OAuth credentials file not found" / FileNotFoundError: credentials.json
 - Download OAuth client secrets from Google Cloud Console (Desktop application)
-- Save as `credentials.json` in the project directory, or set `GMAIL_CREDENTIALS_FILE` in `.env`
+- Save as `credentials.json` in the project directory, or set `GMAIL_CREDENTIALS_FILE` in `.env` to the downloaded path (Google often names the file `client_secret_….json` — no need to rename if you set the env var)
 - See `credentials.example.json` and Step 2c above
+
+### "Access blocked: Email Agent has not completed the Google verification process" (Error 403: access_denied)
+
+This is **not a code bug**. Your OAuth app is in **Testing** mode, so only Google accounts you explicitly approve can sign in. The error usually looks like:
+
+> App is in testing mode, can only be accessed by developer-approved testers
+
+**Fix — add yourself as a test user:**
+
+1. Open [Google Cloud Console](https://console.cloud.google.com) and select your **Email Agent** project
+2. Go to **APIs & Services** → **OAuth consent screen**  
+   (In newer console UI: **Google Auth Platform** → **Audience**)
+3. Confirm **Publishing status** is **Testing**
+4. Under **Test users**, click **+ ADD USERS**
+5. Add the **exact Google account** you will sign in with (e.g. `poulsbopete@gmail.com`) — it must match the account you pick in the browser
+6. Click **Save**
+7. Wait about a minute, then retry:
+   ```bash
+   venv/bin/python3 email_agent.py --once
+   ```
+
+**For personal use:** Keeping the app in **Testing** with test users is fine. You do **not** need Google verification unless you publish the app to the public (move to **Production** for unrelated users).
 
 ### "Gmail API authentication failed"
 - Delete `token.json` and run again to re-authenticate
