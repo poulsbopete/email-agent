@@ -177,7 +177,7 @@ class EmailAgent:
         self.max_emails = max_emails
         self.gmail_service = None
         self.auto_send = os.getenv('AUTO_SEND_RESPONSES', 'false').lower() in ('1', 'true', 'yes')
-        self.model = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-6')
+        self.model = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
 
         if not dry_run:
             self.setup_gmail_api()
@@ -210,6 +210,12 @@ class EmailAgent:
         token_path = get_token_path()
         exit_if_credentials_missing(credentials_path)
 
+        print(
+            'First-time Gmail sign-in: open the URL below in your browser '
+            '(test user on your Google Cloud OAuth app). '
+            f'Credentials file: {credentials_path.name}'
+        )
+        print(f'  Waiting for authorization; token will be saved to {token_path.name}')
         flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
         creds = flow.run_local_server(port=0)
 

@@ -87,7 +87,7 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key for email classification and reply drafting |
 | `IMESSAGE_NOTIFY_TO` | For iMessage | — | Phone number (`+15551234567`) or Apple ID email of an existing Messages contact |
 | `AUTO_SEND_RESPONSES` | No | `false` | `true` to send replies automatically; `false` to create Gmail drafts |
-| `CLAUDE_MODEL` | No | `claude-sonnet-4-6` | Claude model used for analysis |
+| `CLAUDE_MODEL` | No | `claude-sonnet-4-20250514` | Claude model used for analysis |
 | `MAX_EMAILS_PER_RUN` | No | `10` | Maximum unread emails processed per run |
 | `GMAIL_CREDENTIALS_FILE` | No | `credentials.json` | Path to Gmail OAuth client secrets JSON |
 | `GMAIL_TOKEN_FILE` | No | `token.json` | Path to saved OAuth refresh token (created on first auth) |
