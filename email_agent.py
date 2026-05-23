@@ -72,7 +72,12 @@ def load_dotenv(env_path: Optional[Path] = None) -> None:
         return
     for line in path.read_text().splitlines():
         line = line.strip()
-        if not line or line.startswith('#') or '=' not in line:
+        if not line or line.startswith('#'):
+            continue
+        if '=' not in line:
+            if re.match(r'^[A-Z_][A-Z0-9_]*\s+\S', line):
+                key = line.split()[0]
+                print(f'Warning: ignored .env entry (use KEY=VALUE): {key}', file=sys.stderr)
             continue
         if line.startswith('export '):
             line = line[len('export '):].strip()
