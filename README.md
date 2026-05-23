@@ -139,6 +139,8 @@ When an email is ambiguous or sensitive, the agent:
 | **Local / launchd** | Terminal output or `~/Library/Logs/email-agent/email-agent.log` |
 | **Gmail** | Filter by **IMPORTANT** label |
 
+**How to respond (CI):** add instructions to `review_instructions.json` (see [CLOUD_HOSTING.md](CLOUD_HOSTING.md#answering-agent-questions)) or reply in the Gmail thread with `[agent] your instruction`.
+
 ## Gmail OAuth setup
 
 You need a Google Cloud project with the Gmail API enabled and OAuth 2.0 credentials for a **Desktop application**.
