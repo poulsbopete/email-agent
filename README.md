@@ -95,6 +95,7 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | `PERSONAL_SENDERS` | No | — | Comma-separated trusted personal email addresses (never archived) |
 | `EMAIL_SENDER_NAME` | No | — | Your name as it should appear in reply sign-offs (e.g. `Peter Simkins`) |
 | `EMAIL_VOICE` | No | — | Free-text description of how you write email (tone, length, sign-off style) |
+| `VOICE_EXAMPLES_FILE` | No | — | Path to anonymized writing samples (e.g. `voice_examples.txt`; gitignored) |
 | `CHECK_INTERVAL` | No | `300` | Seconds between checks in legacy `--daemon` mode only |
 
 ### Personal voice
@@ -106,9 +107,32 @@ Example:
 ```bash
 EMAIL_SENDER_NAME=Peter Simkins
 EMAIL_VOICE=Direct, friendly, professional. Short sentences. Signs off with "Peter" or "Thanks, Peter". Works at Elastic. Avoid overly formal language.
+VOICE_EXAMPLES_FILE=voice_examples.txt
 ```
 
-For GitHub Actions, add the same values as optional repository secrets (`EMAIL_SENDER_NAME`, `EMAIL_VOICE`). See [CLOUD_HOSTING.md](CLOUD_HOSTING.md).
+#### MemPalace / OpenAI chat history (MCP down workaround)
+
+If [MemPalace](https://github.com/milla-jovovich/mempalace) is installed but its MCP server is unavailable, you can still mine your writing style from the local OpenAI export that MemPalace already indexed:
+
+| Location | Contents |
+|----------|----------|
+| `~/.mempalace/palace/chroma.sqlite3` | Chroma index (~298 MB, 25k chunks from `openai_history` wing) |
+| `~/openai-history/conversations-*.json` | Source OpenAI export (~6000 user messages) |
+
+Generate anonymized samples (never committed):
+
+```bash
+python3 scripts/export_voice_from_mempalace.py
+# optional: --source-dir ~/openai-history --output voice_examples.txt --max-samples 25
+```
+
+Then set `VOICE_EXAMPLES_FILE=voice_examples.txt` in `.env`. The agent injects those examples into reply prompts alongside `EMAIL_VOICE`.
+
+**When MemPalace MCP is back:** use semantic search for queries like *professional email tone*, *sign-off style*, or *work correspondence* and paste the best snippets into `voice_examples.txt` (or refine `EMAIL_VOICE` from search results). Re-run `/mempalace:init` if the MCP server fails to start — it expects `python3 -m mempalace.mcp_server` on your PATH.
+
+**Manual fallback:** copy a few representative emails or chat replies you wrote into `voice_examples.txt` yourself.
+
+For GitHub Actions, add the same values as optional repository secrets (`EMAIL_SENDER_NAME`, `EMAIL_VOICE`). `VOICE_EXAMPLES_FILE` is for local runs unless you copy the file onto the runner or fold key phrases into `EMAIL_VOICE`. See [CLOUD_HOSTING.md](CLOUD_HOSTING.md).
 
 ## Usage
 

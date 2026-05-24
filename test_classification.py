@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for email classification safeguards (no API calls)."""
 
+import os
 import unittest
 import unittest.mock
 
@@ -11,6 +12,7 @@ from email_agent import (
     looks_like_clear_promotion,
     load_email_sender_name,
     load_email_voice,
+    load_voice_examples,
     requests_response,
 )
 
@@ -115,6 +117,21 @@ class TestEmailVoice(unittest.TestCase):
             self.assertIn('Direct and friendly.', section)
             self.assertEqual(load_email_sender_name(), 'Peter Simkins')
             self.assertEqual(load_email_voice(), 'Direct and friendly.')
+
+    def test_voice_prompt_includes_examples_file(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile('w', delete=False, suffix='.txt') as tmp:
+            tmp.write('# comment\nThanks for the note.\nBest,\nPeter\n')
+            path = tmp.name
+        try:
+            env = {'VOICE_EXAMPLES_FILE': path}
+            with unittest.mock.patch.dict('os.environ', env, clear=True):
+                section = build_voice_prompt_section()
+                self.assertIn('Thanks for the note.', section)
+                self.assertNotIn('# comment', section)
+                self.assertEqual(load_voice_examples(), 'Thanks for the note.\nBest,\nPeter')
+        finally:
+            os.unlink(path)
 
 
 if __name__ == '__main__':

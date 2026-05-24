@@ -3,6 +3,7 @@ credentials.json
 client_secret.json
 token.json
 pending_review.json
+voice_examples.txt
 venv/
 __pycache__/
 *.pyc

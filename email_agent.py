@@ -172,17 +172,50 @@ def load_email_voice() -> str:
     return os.getenv('EMAIL_VOICE', '').strip()
 
 
+def load_voice_examples_file() -> str:
+    """Optional path to a file of example writing (e.g. from MemPalace export)."""
+    return os.getenv('VOICE_EXAMPLES_FILE', '').strip()
+
+
+def load_voice_examples(max_chars: int = 8000) -> str:
+    """
+    Load anonymized writing samples from VOICE_EXAMPLES_FILE.
+
+    Lines starting with # are treated as comments. Content is capped so prompts
+    stay within a reasonable size budget.
+    """
+    path = load_voice_examples_file()
+    if not path:
+        return ''
+    file_path = Path(path).expanduser()
+    if not file_path.is_file():
+        return ''
+    raw = file_path.read_text(encoding='utf-8')
+    lines = [line for line in raw.splitlines() if not line.lstrip().startswith('#')]
+    text = '\n'.join(lines).strip()
+    if not text:
+        return ''
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit('\n', 1)[0].strip()
+        text += '\n[examples truncated]'
+    return text
+
+
 def build_voice_prompt_section() -> str:
     """Prompt block to match the inbox owner's tone, or empty when unset."""
     name = load_email_sender_name()
     voice = load_email_voice()
-    if not name and not voice:
+    examples = load_voice_examples()
+    if not name and not voice and not examples:
         return ''
     lines = ['WRITING AS THE INBOX OWNER:']
     if name:
         lines.append(f'- You are drafting replies as {name}.')
     if voice:
         lines.append(f'- Voice and style: {voice}')
+    if examples:
+        lines.append('- Match the tone of these real examples:')
+        lines.append(examples)
     lines.append(
         '- Match this tone in reply text; include a natural sign-off when appropriate.'
     )

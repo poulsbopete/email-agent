@@ -360,6 +360,7 @@ In addition to [.env.example](.env.example), these support headless runs:
 | `GMAIL_TOKEN_FILE` / `GMAIL_CREDENTIALS_FILE` | Optional paths after materialization (defaults unchanged) |
 | `EMAIL_SENDER_NAME` | Display name for reply sign-offs (optional; same as local `.env`) |
 | `EMAIL_VOICE` | Free-text writing style for auto-replies and review-instruction drafts (optional) |
+| `VOICE_EXAMPLES_FILE` | Local path to anonymized writing samples (optional; not practical as a GitHub secret — use `EMAIL_VOICE` in CI) |
 | `CI` | Set automatically in GitHub Actions; enables run summary and workflow annotations |
 
 The hourly workflow sets `AUTO_SEND_RESPONSES=true` explicitly so GitHub Actions sends replies rather than saving drafts.
