@@ -173,6 +173,8 @@ GitHub stores these encrypted. Never commit them to git.
 | `ANTHROPIC_API_KEY` | **Yes** | Your Anthropic API key | [console.anthropic.com](https://console.anthropic.com) → **API Keys** → Create Key |
 | `GMAIL_TOKEN_JSON` | **Yes** | Entire contents of `token.json` | See copy commands below |
 | `GMAIL_CREDENTIALS_JSON` | Optional | Entire contents of `credentials.json` | Recommended if token refresh fails in CI |
+| `EMAIL_SENDER_NAME` | Optional | Your display name for sign-offs | Same as `.env` — e.g. `Peter Simkins` |
+| `EMAIL_VOICE` | Optional | How you write email (tone, length, sign-offs) | Same as `.env` — free-text style guide |
 
 **Copy `token.json` to clipboard (macOS):**
 
@@ -356,6 +358,8 @@ In addition to [.env.example](.env.example), these support headless runs:
 | `GMAIL_TOKEN_JSON` | Full OAuth token JSON (same as `token.json`) |
 | `GMAIL_CREDENTIALS_JSON` | Full client secrets JSON (same as `credentials.json`) |
 | `GMAIL_TOKEN_FILE` / `GMAIL_CREDENTIALS_FILE` | Optional paths after materialization (defaults unchanged) |
+| `EMAIL_SENDER_NAME` | Display name for reply sign-offs (optional; same as local `.env`) |
+| `EMAIL_VOICE` | Free-text writing style for auto-replies and review-instruction drafts (optional) |
 | `CI` | Set automatically in GitHub Actions; enables run summary and workflow annotations |
 
 The hourly workflow sets `AUTO_SEND_RESPONSES=true` explicitly so GitHub Actions sends replies rather than saving drafts.

@@ -162,6 +162,33 @@ def load_personal_senders() -> set[str]:
     return {addr.strip().lower() for addr in raw.split(',') if addr.strip()}
 
 
+def load_email_sender_name() -> str:
+    """Display name for reply drafts (e.g. Peter Simkins)."""
+    return os.getenv('EMAIL_SENDER_NAME', '').strip()
+
+
+def load_email_voice() -> str:
+    """Free-text description of how the inbox owner writes email."""
+    return os.getenv('EMAIL_VOICE', '').strip()
+
+
+def build_voice_prompt_section() -> str:
+    """Prompt block to match the inbox owner's tone, or empty when unset."""
+    name = load_email_sender_name()
+    voice = load_email_voice()
+    if not name and not voice:
+        return ''
+    lines = ['WRITING AS THE INBOX OWNER:']
+    if name:
+        lines.append(f'- You are drafting replies as {name}.')
+    if voice:
+        lines.append(f'- Voice and style: {voice}')
+    lines.append(
+        '- Match this tone in reply text; include a natural sign-off when appropriate.'
+    )
+    return '\n'.join(lines) + '\n'
+
+
 def is_personal_sender(email: dict, personal_senders: set[str]) -> bool:
     """True when sender is in PERSONAL_SENDERS."""
     if not personal_senders:
@@ -256,6 +283,10 @@ def build_analysis_prompt(email: dict, own_email: str = '', personal_senders: Op
     if context_block:
         context_block = f'\nSENDER CONTEXT:\n{context_block}\n'
 
+    voice_block = build_voice_prompt_section()
+    if voice_block:
+        voice_block = f'\n{voice_block}'
+
     return f"""
 Analyze this email and choose exactly one action.
 
@@ -263,7 +294,7 @@ From: {email['from']}
 Subject: {email['subject']}
 To: {email['to']}
 Body (first 500 chars): {email['body']}
-{context_block}
+{context_block}{voice_block}
 CLASSIFICATION RULES (follow strictly):
 
 NEVER archive when ANY of these apply:
@@ -283,7 +314,7 @@ ACTIONS:
 
 2. GENERAL (personal or professional mail expecting a reply)
    - action: "respond"
-   - Include suggested_response (friendly, concise, max 200 chars)
+   - Include suggested_response in the inbox owner's voice (concise, max 200 chars)
 
 3. NEEDS USER INPUT (ambiguous, sensitive, legal/financial, or unsure)
    - action: "needs_user_input"
@@ -736,6 +767,10 @@ class EmailAgent:
         if reply_match:
             return reply_match.group(1).strip()
 
+        voice_block = build_voice_prompt_section()
+        if voice_block:
+            voice_block = f'\n{voice_block}\n'
+
         prompt = f"""
 Write a concise email reply based on the user's instruction.
 
@@ -746,9 +781,9 @@ Body:
 {email.get('full_body', email.get('body', ''))[:1500]}
 
 User instruction: {instruction}
-
+{voice_block}
 Respond with ONLY the reply body text (no subject, no markdown).
-Keep it friendly and under 300 words.
+Keep it under 300 words.
 """
         response = self.client.messages.create(
             model=self.model,

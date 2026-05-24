@@ -2,11 +2,15 @@
 """Unit tests for email classification safeguards (no API calls)."""
 
 import unittest
+import unittest.mock
 
 from email_agent import (
     MOCK_EMAILS,
     apply_classification_safeguards,
+    build_voice_prompt_section,
     looks_like_clear_promotion,
+    load_email_sender_name,
+    load_email_voice,
     requests_response,
 )
 
@@ -93,6 +97,24 @@ class TestArchiveSafeguards(unittest.TestCase):
             email, analysis, personal_senders={'friend@example.com'},
         )
         self.assertEqual(result['action'], 'respond')
+
+
+class TestEmailVoice(unittest.TestCase):
+    def test_voice_prompt_empty_when_unset(self):
+        with unittest.mock.patch.dict('os.environ', {}, clear=True):
+            self.assertEqual(build_voice_prompt_section(), '')
+
+    def test_voice_prompt_includes_name_and_voice(self):
+        env = {
+            'EMAIL_SENDER_NAME': 'Peter Simkins',
+            'EMAIL_VOICE': 'Direct and friendly.',
+        }
+        with unittest.mock.patch.dict('os.environ', env, clear=True):
+            section = build_voice_prompt_section()
+            self.assertIn('Peter Simkins', section)
+            self.assertIn('Direct and friendly.', section)
+            self.assertEqual(load_email_sender_name(), 'Peter Simkins')
+            self.assertEqual(load_email_voice(), 'Direct and friendly.')
 
 
 if __name__ == '__main__':

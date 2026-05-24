@@ -93,7 +93,22 @@ The agent reads `.env` from the project directory on each run. Copy [.env.exampl
 | `GMAIL_CREDENTIALS_JSON` | No | — | Full client secrets JSON string (CI/cloud; written to `GMAIL_CREDENTIALS_FILE` path) |
 | `GMAIL_TOKEN_JSON` | No | — | Full token JSON string (CI/cloud; written to `GMAIL_TOKEN_FILE` path) |
 | `PERSONAL_SENDERS` | No | — | Comma-separated trusted personal email addresses (never archived) |
+| `EMAIL_SENDER_NAME` | No | — | Your name as it should appear in reply sign-offs (e.g. `Peter Simkins`) |
+| `EMAIL_VOICE` | No | — | Free-text description of how you write email (tone, length, sign-off style) |
 | `CHECK_INTERVAL` | No | `300` | Seconds between checks in legacy `--daemon` mode only |
+
+### Personal voice
+
+Set `EMAIL_SENDER_NAME` and `EMAIL_VOICE` in `.env` so auto-replies and review-instruction drafts sound like you. Claude uses these when generating `suggested_response` for general mail and when turning `[agent]` / `review_instructions.json` instructions into reply text.
+
+Example:
+
+```bash
+EMAIL_SENDER_NAME=Peter Simkins
+EMAIL_VOICE=Direct, friendly, professional. Short sentences. Signs off with "Peter" or "Thanks, Peter". Works at Elastic. Avoid overly formal language.
+```
+
+For GitHub Actions, add the same values as optional repository secrets (`EMAIL_SENDER_NAME`, `EMAIL_VOICE`). See [CLOUD_HOSTING.md](CLOUD_HOSTING.md).
 
 ## Usage
 

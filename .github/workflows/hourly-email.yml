@@ -6,6 +6,8 @@
 #        ANTHROPIC_API_KEY     — from console.anthropic.com
 #        GMAIL_TOKEN_JSON      — full contents of token.json (one line JSON)
 #        GMAIL_CREDENTIALS_JSON — optional; full contents of credentials.json
+#        EMAIL_SENDER_NAME     — optional; your name for reply sign-offs
+#        EMAIL_VOICE           — optional; free-text description of how you write
 #   3. Enable workflow_dispatch to test manually before relying on cron
 #
 # See CLOUD_HOSTING.md for tradeoffs and alternatives.
@@ -54,6 +56,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
           GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
+          EMAIL_SENDER_NAME: ${{ secrets.EMAIL_SENDER_NAME }}
+          EMAIL_VOICE: ${{ secrets.EMAIL_VOICE }}
           MAX_EMAILS_PER_RUN: '10'
           AUTO_SEND_RESPONSES: 'true'
         run: python email_agent.py --once --max-emails 10
