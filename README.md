@@ -164,11 +164,19 @@ By default, the agent is conservative: when unsure how to reply, it asks you rat
 
 **Archive safeguards** — the agent will never archive mail that:
 
-- Asks for a reply (`please respond`, questions in the subject, etc.)
+- Asks for a reply (`please respond`, questions in the subject, etc.) — unless the mail is clearly promotional
 - Comes from your own Gmail address or addresses in `PERSONAL_SENDERS`
 - Lacks clear promotional signals (unsubscribe links, sale language, marketing sender domains)
 
 If Claude misclassifies ambiguous mail as promotional, these rules override the decision to **respond** or flag **needs_user_input** instead.
+
+**Respond safeguards** — the agent will never reply to mail that:
+
+- Comes from no-reply / do-not-reply senders
+- Has a `List-Unsubscribe` header (bulk/marketing mail)
+- Matches promotional signals (sale language, marketing domains like `extracare@`, unsubscribe links, etc.)
+
+If Claude misclassifies promotional mail as personal, these rules override the decision to **archive** instead — even when the subject looks like a question (e.g. "Hungry for summer?").
 
 ### Recovering incorrectly archived mail
 

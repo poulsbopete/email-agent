@@ -95,6 +95,7 @@ PROMOTION_INDICATORS = [
     r'\bmanage (your )?preferences\b',
     r'\bview in browser\b',
     r'\bflash sale\b',
+    r'\blimited time\b',
     r'\blimited time offer\b',
     r'\b\d+% off\b',
     r'\bfree shipping\b',
@@ -103,16 +104,41 @@ PROMOTION_INDICATORS = [
     r'\bexclusive deal\b',
     r'\bnewsletter\b',
     r'\bmarketing email\b',
+    r'\bspecial sale\b',
+    r'\bspecial price\b',
+    r'\bsale price\b',
+    r'\bhungry for\b',
+    r'\b\d+ off\b',
+    r'\bon sale\b',
+    r'\bshop (the )?sale\b',
+    r'\bdeal(s)? of the (day|week)\b',
+    r'\bexclusive offer\b',
+    r'\bdiscount\b',
+    r'\bcoupon\b',
+    r'\bpromo(tion(al)?)?\b',
+    r'\brewards?\b',
+    r'\bextrabucks\b',
+    r'\bextracare\b',
 ]
 
 PROMOTION_SENDER_PATTERNS = [
-    r'^(noreply|no-reply|donotreply|do-not-reply)@',
-    r'^(marketing|promo|promotions|deals|newsletter|news|notifications|info)@',
+    r'^(noreply|no-reply|donotreply|do-not-reply|no_reply)@',
+    r'^(marketing|promo|promotions|deals|newsletter|news|notifications|info|offers|rewards)@',
+    r'extracare',
+    r'\.marketing\.',
+    r'\.deals\.',
+    r'newsletter',
     r'@mail\.(chimp|jet|erlite|gun)\.',
     r'@email\.',
     r'@e\.',
     r'@mg\.',
+    r'@messages\.',
+    r'@notify\.',
 ]
+
+NO_REPLY_LOCAL_PARTS = frozenset({
+    'noreply', 'no-reply', 'donotreply', 'do-not-reply', 'no_reply',
+})
 
 
 def email_combined_text(email: dict) -> str:
@@ -121,8 +147,27 @@ def email_combined_text(email: dict) -> str:
     return f"{email.get('subject', '')}\n{body}"
 
 
+def is_no_reply_sender(email: dict) -> bool:
+    """True when the From address is a no-reply / do-not-reply mailbox."""
+    sender = parse_sender_address(email.get('from', '')).lower()
+    if not sender or '@' not in sender:
+        return False
+    local_part = sender.split('@', 1)[0]
+    normalized = local_part.replace('-', '').replace('_', '')
+    if local_part in NO_REPLY_LOCAL_PARTS or normalized in {'noreply', 'donotreply'}:
+        return True
+    return bool(re.match(r'^(noreply|no[-_]?reply|donotreply|do[-_]?not[-_]?reply)', local_part))
+
+
+def has_list_unsubscribe(email: dict) -> bool:
+    """True when Gmail provided a List-Unsubscribe header (bulk/marketing mail)."""
+    return bool(email.get('list_unsubscribe', '').strip())
+
+
 def requests_response(email: dict) -> bool:
     """True when the sender clearly expects a reply."""
+    if looks_like_clear_promotion(email):
+        return False
     subject = email.get('subject', '')
     text = email_combined_text(email).lower()
     for pattern in RESPONSE_REQUEST_PATTERNS:
@@ -135,6 +180,10 @@ def requests_response(email: dict) -> bool:
 
 def looks_like_clear_promotion(email: dict) -> bool:
     """True only for mail with strong promotional signals."""
+    if has_list_unsubscribe(email):
+        return True
+    if is_no_reply_sender(email):
+        return True
     text = email_combined_text(email).lower()
     sender = parse_sender_address(email.get('from', '')).lower()
     for pattern in PROMOTION_SENDER_PATTERNS:
@@ -230,6 +279,24 @@ def is_personal_sender(email: dict, personal_senders: set[str]) -> bool:
     return sender in personal_senders
 
 
+def _archive_promotion_safeguard(
+    email: dict,
+    analysis: dict,
+    reason_suffix: str,
+) -> dict:
+    """Force archive for promotional mail, clearing reply fields."""
+    original_reason = analysis.get('reason', '')
+    safeguard_note = f'Safeguard forced archive ({reason_suffix})'
+    return {
+        **analysis,
+        'action': 'archive',
+        'email_type': 'promotion',
+        'suggested_response': None,
+        'user_question': None,
+        'reason': f'{safeguard_note}. {original_reason}'.strip(),
+    }
+
+
 def apply_classification_safeguards(
     email: dict,
     analysis: dict,
@@ -237,22 +304,42 @@ def apply_classification_safeguards(
     personal_senders: Optional[set[str]] = None,
 ) -> dict:
     """
-    Override unsafe archive decisions. Never archive mail that asks for a reply,
-    comes from the user, or lacks clear promotional signals.
+    Override unsafe classification decisions.
+
+    - Never respond to promotional / no-reply / List-Unsubscribe mail.
+    - Never archive mail that asks for a reply, comes from the user, or lacks
+      clear promotional signals.
     """
     personal_senders = personal_senders or set()
     action = analysis.get('action', 'needs_user_input')
+    protected_sender = (
+        is_own_sender(email, own_email) or is_personal_sender(email, personal_senders)
+    )
+
+    if looks_like_clear_promotion(email) and not protected_sender:
+        if action in ('respond', 'mark_read', 'needs_user_input'):
+            return _archive_promotion_safeguard(email, analysis, 'promotional_mail')
+
+    if action == 'respond' and not protected_sender:
+        if is_no_reply_sender(email):
+            return _archive_promotion_safeguard(email, analysis, 'no_reply_sender')
+        if has_list_unsubscribe(email):
+            return _archive_promotion_safeguard(email, analysis, 'list_unsubscribe')
+        if looks_like_clear_promotion(email):
+            return _archive_promotion_safeguard(email, analysis, 'promotional_mail')
 
     if action != 'archive':
         return analysis
 
     override_reason = None
-    if requests_response(email):
-        override_reason = 'response_requested'
-    elif is_own_sender(email, own_email):
+    if is_own_sender(email, own_email):
         override_reason = 'from_own_address'
     elif is_personal_sender(email, personal_senders):
         override_reason = 'personal_sender'
+    elif looks_like_clear_promotion(email):
+        pass
+    elif requests_response(email):
+        override_reason = 'response_requested'
     elif not looks_like_clear_promotion(email):
         override_reason = 'not_clear_promotion'
 
@@ -338,16 +425,22 @@ NEVER archive when ANY of these apply:
 
 ONLY archive CLEAR promotional/marketing mail with signals like:
 - Unsubscribe / opt-out / manage preferences links
-- Sales language (percent off, flash sale, limited time, shop now)
-- Bulk sender addresses (noreply@, marketing@, deals@, newsletter@)
+- Sales language (percent off, flash sale, limited time, shop now, special sale prices)
+- Bulk sender addresses (noreply@, no-reply@, marketing@, deals@, newsletter@, extracare@)
+- List-Unsubscribe header present (always archive)
+
+NEVER respond to promotional or marketing mail — even if the subject is a question
+(e.g. "Hungry for summer?"). Rhetorical promo questions are NOT personal mail.
 
 ACTIONS:
 1. PROMOTIONAL/MARKETING (clear ads, sales, unsolicited bulk mail only)
    - action: "archive"
+   - NEVER use "respond" for no-reply senders or mail with List-Unsubscribe
 
 2. GENERAL (personal or professional mail expecting a reply)
    - action: "respond"
    - Include suggested_response in the inbox owner's voice (concise, max 200 chars)
+   - Do NOT respond to marketing domains, sale subjects, or noreply addresses
 
 3. NEEDS USER INPUT (ambiguous, sensitive, legal/financial, or unsure)
    - action: "needs_user_input"
@@ -367,7 +460,9 @@ Respond with ONLY a JSON object (no markdown):
     "reason": "brief explanation"
 }}
 
-Be conservative: when in doubt, use needs_user_input — never archive personal or conversational mail.
+Be conservative: when in doubt between respond and archive for marketing-looking mail, use
+archive — never reply to promotions. For ambiguous non-marketing mail, use needs_user_input
+instead of archive.
 """
 
 
@@ -684,6 +779,10 @@ class EmailAgent:
             subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
             sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown')
             to = next((h['value'] for h in headers if h['name'] == 'To'), '')
+            list_unsubscribe = next(
+                (h['value'] for h in headers if h['name'].lower() == 'list-unsubscribe'),
+                '',
+            )
 
             body = self.get_email_body(message)
 
@@ -696,6 +795,7 @@ class EmailAgent:
                 'full_body': body,
                 'timestamp': message['internalDate'],
                 'thread_id': message.get('threadId'),
+                'list_unsubscribe': list_unsubscribe,
             }
         except HttpError as error:
             print(f'Error getting email details: {error}')
@@ -1077,6 +1177,20 @@ Keep it under 300 words.
                 return True
 
             if action == 'respond':
+                if looks_like_clear_promotion(email) and not (
+                    is_own_sender(email, self.get_own_email())
+                    or is_personal_sender(email, load_personal_senders())
+                ):
+                    print(f"  ⚠ Blocked reply to promotional mail: {email['subject'][:50]}")
+                    if not self.dry_run:
+                        self.gmail_service.users().messages().modify(
+                            userId='me',
+                            id=email_id,
+                            body={'removeLabelIds': ['INBOX', 'UNREAD']},
+                        ).execute()
+                    print(f"  ✓ Archived (promo safeguard): {email['subject'][:50]}")
+                    return True
+
                 response_text = analysis.get('suggested_response') or "Thanks for your email — I'll get back to you soon."
                 if self.auto_send:
                     ok = self.send_reply(email, response_text)
